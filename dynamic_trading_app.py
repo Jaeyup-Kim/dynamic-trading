@@ -330,7 +330,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
             #"RSI일자": rsi_date,
             #"RSI": rsi,
             "전일종가": prev_close,
-            "변동률": ((actual_close - prev_close) / prev_close * 100).round(2) if actual_close else None,
+            "변동률": round((actual_close - prev_close) / prev_close * 100, 2) if actual_close else None,
             "매수예정": daily_buy_amount,
             "LOC매수목표": target_price,
             "목표량": target_qty,
