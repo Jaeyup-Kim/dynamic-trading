@@ -469,6 +469,11 @@ st.title("📈 동적매매 전략 시뮬레이터")
 
 target_ticker = st.text_input("투자 티커", value="SOXL")
 first_amt = st.number_input("투자금액", value=20000.0, step=1000.0)
+
+#amt_str = st.text_input("투자금액", "20,000")
+#first_amt = int(amt_str.replace(",", ""))
+#st.write("입력한 금액:", f"{first_amt:,}")
+
 start_date = st.date_input("시작일자", value= datetime.today() - timedelta(days=60))
 end_date = st.date_input("종료일자", value=datetime.today())
 
@@ -502,9 +507,8 @@ if st.button("▶ 전략 실행"):
     df_buy = print_table(buy_orders)
     df_result = pd.concat([df_sell, df_buy], ignore_index=True)
 
-    print("buy : ", df_buy)
-    print("--"*20)
-    print("sell : ", df_sell)    
+    #print("buy : ", df_buy)
+    #print("--"*20)
+    #print("sell : ", df_sell)    
     st.subheader("📊 퉁치기 결과 테이블")
-    st.dataframe(df_result, use_container_width=True)
-    
+    st.dataframe(df_result, use_container_width=True)    
