@@ -332,7 +332,8 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
             #"RSI": rsi,
             "전일종가": prev_close,
             #"변동률": round((actual_close - prev_close) / prev_close * 100, 2) if actual_close else None,
-            "변동률": round((actual_close - prev_close) / prev_close * 100, 2) if actual_close else np.nan,
+            "변동률": round((actual_close - prev_close) / prev_close * 100, 2)
+            if isinstance(actual_close, (int, float)) and prev_close else np.nan,
             "매수예정": daily_buy_amount,
             "LOC매수목표": target_price,
             "목표량": target_qty,
