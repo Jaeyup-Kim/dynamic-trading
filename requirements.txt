@@ -4,3 +4,4 @@ yfinance
 pandas_market_calendars
 datetime
 timedelta
+numpy
