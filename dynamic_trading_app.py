@@ -349,7 +349,11 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
             "주문유형": order_type
         })
     
-    return pd.DataFrame(result)
+    ##return pd.DataFrame(result)
+    df = pd.DataFrame(result)
+    df["변동률"] = pd.to_numeric(df["변동률"], errors="coerce")  # 안전하게 float 변환
+
+    return df
 
 # ---------- 출력 ----------
 def print_table(orders):
