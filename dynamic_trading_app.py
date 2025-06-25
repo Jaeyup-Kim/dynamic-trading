@@ -469,7 +469,7 @@ st.title("📈 동적매매 전략 시뮬레이터")
 
 target_ticker = st.text_input("투자 티커", value="SOXL")
 first_amt = st.number_input("투자금액", value=20000.0, step=1000.0)
-start_date = st.date_input("시작일자", value=datetime(datetime.today().year, 1, 1))
+start_date = st.date_input("시작일자", value=datetime.today() - timedelta(days=60))
 end_date = st.date_input("종료일자", value=datetime.today())
 
 if st.button("▶ 전략 실행"):
