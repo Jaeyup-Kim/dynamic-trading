@@ -4,6 +4,7 @@ import yfinance as yf
 from datetime import datetime, timedelta
 import pandas_market_calendars as mcal
 from collections import namedtuple
+import numpy as np
 
 
 ### ---------------------------------------
@@ -330,7 +331,8 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
             #"RSI일자": rsi_date,
             #"RSI": rsi,
             "전일종가": prev_close,
-            "변동률": round((actual_close - prev_close) / prev_close * 100, 2) if actual_close else None,
+            #"변동률": round((actual_close - prev_close) / prev_close * 100, 2) if actual_close else None,
+            "변동률": round((actual_close - prev_close) / prev_close * 100, 2) if actual_close else np.nan,
             "매수예정": daily_buy_amount,
             "LOC매수목표": target_price,
             "목표량": target_qty,
@@ -511,4 +513,5 @@ if st.button("▶ 전략 실행"):
     #print("--"*20)
     #print("sell : ", df_sell)    
     st.subheader("📊 퉁치기 결과 테이블")
-    st.dataframe(df_result, use_container_width=True)    
+    st.dataframe(df_result, use_container_width=True)
+    
