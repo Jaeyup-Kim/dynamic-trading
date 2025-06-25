@@ -5,9 +5,10 @@ from datetime import datetime, timedelta
 import pandas_market_calendars as mcal
 from collections import namedtuple
 
-# ---------------------------------------
+
+### ---------------------------------------
 # ✅ RSI 계산 함수
-# ---------------------------------------
+### ---------------------------------------
 def calculate_rsi(data, window=14):
     delta = data["Close"].diff()
     gain = delta.where(delta > 0, 0)
@@ -131,7 +132,7 @@ def extract_orders(df):
     sell_orders = []
     buy_orders = []
 
-    print("----->>>>> df >>> : ", df)
+    #print("----->>>>> df >>> : ", df)
 
     for _, row in df.iterrows():
         if pd.notna(row['매도목표가']) and row['매도목표가'] > 0 and pd.isna(row['실제매도일']) and row['주문유형'] != "MOC":              
@@ -139,7 +140,7 @@ def extract_orders(df):
             qty = int(row['매수량']) if pd.notna(row['매수량']) else 0
             if qty > 0:
                 sell_orders.append(Order("Sell", "LOC", price, qty))
-                print("----->>>>> sell_orders1 : ", sell_orders)
+               # print("----->>>>> sell_orders1 : ", sell_orders)
 
         # 실제매도일이 미입력이고 MOC매도일이 존재하고 주문유형이 MOC일 경우        
         elif pd.isna(row['실제매도일']) and pd.notna(row['MOC매도일']) and row['주문유형'] == "MOC":                        
@@ -147,7 +148,7 @@ def extract_orders(df):
             qty = int(row['매수량']) if pd.notna(row['매수량']) else 0
             if qty > 0:
                 sell_orders.append(Order("Sell", "MOC", price, qty))
-                print("----->>>>> sell_orders2 : ", sell_orders)                
+                #print("----->>>>> sell_orders2 : ", sell_orders)                
 
 
     last_row = df.iloc[-1]
@@ -156,9 +157,9 @@ def extract_orders(df):
         qty = int(last_row['목표량'])
         if qty > 0:
             buy_orders.append(Order("Buy", "LOC", price, qty))
-            print("----->>>>> buy_orders1 : ", buy_orders)            
+            #print("----->>>>> buy_orders1 : ", buy_orders)            
 
-    print("----->>>>> sell_orders9 : ", sell_orders)
+    #print("----->>>>> sell_orders9 : ", sell_orders)
     return sell_orders, buy_orders
 
 # ---------------------------------------
@@ -321,8 +322,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
             actual_sell_qty = None
             actual_sell_amount = None
             order_type = ""
-
-
+         
         # 결과 누적
         result.append({
             "일자": day.date(),
@@ -345,7 +345,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
             "실제매도금액": actual_sell_amount,
             "주문유형": order_type
         })
-
+    
     return pd.DataFrame(result)
 
 # ---------- 출력 ----------
@@ -360,7 +360,7 @@ def print_table(orders):
         "Quantity": order.quantity
     } for order in orders])
 
-    print("--- df : ", df)
+    #print("--- df : ", df)
     return df
 
 def print_orders(sell_orders, buy_orders):
@@ -469,7 +469,7 @@ st.title("📈 동적매매 전략 시뮬레이터")
 
 target_ticker = st.text_input("투자 티커", value="SOXL")
 first_amt = st.number_input("투자금액", value=20000.0, step=1000.0)
-start_date = st.date_input("시작일자", value=datetime.today() - timedelta(days=60))
+start_date = st.date_input("시작일자", value= datetime.today() - timedelta(days=60))
 end_date = st.date_input("종료일자", value=datetime.today())
 
 if st.button("▶ 전략 실행"):
