@@ -1,0 +1,7 @@
+streamlit
+pandas
+yfinance
+pandas_market_calendars
+datetime
+namedtuple
+timedelta
