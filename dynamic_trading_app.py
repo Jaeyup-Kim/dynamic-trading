@@ -341,7 +341,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
             "LOC매수목표": target_price,
             "목표량": target_qty,
             "매수가": actual_close,
-            "매수량": actual_qty,
+            "매수량": actual_qty, 
             "매수금액": buy_amt,
             "매도목표가": sell_target_price,
             "MOC매도일": moc_sell_date,
@@ -349,6 +349,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
             "실제매도가": actual_sell_price,
             "실제매도량": actual_sell_qty,
             "실제매도금액": actual_sell_amount,
+            "매매손익": round(actual_sell_amount - buy_amt, 2) if actual_sell_amount else None,
             "주문유형": order_type
         })
 
@@ -511,11 +512,31 @@ if st.button("▶ 전략 실행"):
         st.warning("데이터가 없습니다. 입력 조건을 확인하세요.")
     else:
         st.success("전략 실행 완료!")
+
+        # ✅ 누적 수익 및 수익률 계산
+        total_profit = df_result.dropna(subset=["실제매도금액", "매수금액"]).apply(
+            lambda row: (row["실제매도금액"] - row["매수금액"]), axis=1
+        ).sum()
+
+        #total_invested = df_result.dropna(subset=["매수금액"]).apply(
+        #    lambda row: row["매수금액"], axis=1
+        #).sum()
+
+        #profit_ratio = (total_profit / total_invested * 100) if total_invested else 0
+        profit_ratio = (total_profit / first_amt * 100)
+
+        # 💹 수익 & 수익률 표시
+        col1, col2 = st.columns(2)
+        col1.metric("📈 누적 수익", f"{total_profit:,.2f} USD")
+        col2.metric("📊 수익률", f"{profit_ratio:.2f} %")
+
         st.subheader("📊 매매 리스트")
+
         st.dataframe(printable_df.reset_index(drop=True), use_container_width=True)
 
-        # csv = printable_df.to_csv(index=False).encode('utf-8')
-        csv = printable_df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')        
+        #csv = printable_df.to_csv(index=False).encode('utf-8')
+        csv = printable_df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+
         st.download_button("⬇️ CSV 다운로드", csv, "strategy_result.csv", "text/csv")
 
 
