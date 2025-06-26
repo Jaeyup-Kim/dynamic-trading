@@ -167,7 +167,7 @@ def extract_orders(df):
     return sell_orders, buy_orders
 
 # ---------------------------------------
-# ✅ 동적매매 전략 실행
+# ✅ RSI 매매 전략 실행
 # ---------------------------------------
 # ---------- 매매 전략 실행 ----------
 def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
@@ -358,7 +358,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
     #return df
     return pd.DataFrame(result)
 
-# ---------- 출력 ----------
+# ----------퉁치기 표 출력 ----------
 def print_table(orders):
     """
     주문 리스트를 DataFrame으로 변환
@@ -373,6 +373,7 @@ def print_table(orders):
     #print("--- df : ", df)
     return df
 
+#-- 매도/매수 주문내역 출력
 def print_orders(sell_orders, buy_orders):
     """
     매도/매수 주문을 구분 출력
@@ -390,7 +391,6 @@ def print_orders(sell_orders, buy_orders):
     print("-" * 40)
     for order in sorted(buy_orders, key=lambda x: x.price):
         print(f"{order.side:<10}{order.type:<10}{order.price:<10.2f}{order.quantity:<10}")
-
 
 
 # ---------- 퉁치기 로직 ----------
@@ -472,7 +472,7 @@ def remove_duplicates(sell_orders, buy_orders):
     sell_orders[:] = new_sell_orders
     buy_orders[:] = new_buy_orders
 
-#  색상 지정
+# ----- 퉁치기 표 색상 지정
 def highlight_order(row):
     if row["매매유형"] == "Sell":
         return ['background-color: #D9EFFF'] * len(row)  # 하늘색
@@ -484,7 +484,7 @@ def highlight_order(row):
 # ---------------------------------------
 # ✅ Streamlit UI
 # ---------------------------------------
-st.title("📈 동적매매 전략 시뮬레이터")
+st.title("📈 RSI 동적 매매")
 
 target_ticker = st.text_input("투자 티커", value="SOXL")
 first_amt = st.number_input("투자금액", value=20000, step=500)
@@ -511,10 +511,8 @@ if st.button("▶ 전략 실행"):
         st.warning("데이터가 없습니다. 입력 조건을 확인하세요.")
     else:
         st.success("전략 실행 완료!")
-        st.subheader("📊 전략 결과 테이블")
-        #st.dataframe(printable_df.style.format(precision=2), use_container_width=True)
+        st.subheader("📊 매매 리스트")
         st.dataframe(printable_df.reset_index(drop=True), use_container_width=True)
-        #st.table(printable_df)
 
         csv = printable_df.to_csv(index=False).encode('utf-8')
         st.download_button("⬇️ CSV 다운로드", csv, "strategy_result.csv", "text/csv")
@@ -532,7 +530,7 @@ if st.button("▶ 전략 실행"):
     #print("buy : ", df_buy)
     #print("--"*20)
     #print("sell : ", df_sell)    
-    st.subheader("📊 퉁치기 결과 테이블")
+    st.subheader("📊 퉁치기 결과")
     styled_df = df_result.style.apply(highlight_order, axis=1)
     st.dataframe(styled_df, use_container_width=True)
     
