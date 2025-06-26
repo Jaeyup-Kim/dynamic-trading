@@ -514,7 +514,8 @@ if st.button("▶ 전략 실행"):
         st.subheader("📊 매매 리스트")
         st.dataframe(printable_df.reset_index(drop=True), use_container_width=True)
 
-        csv = printable_df.to_csv(index=False).encode('utf-8')
+        # csv = printable_df.to_csv(index=False).encode('utf-8')
+        csv = printable_df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')        
         st.download_button("⬇️ CSV 다운로드", csv, "strategy_result.csv", "text/csv")
 
 
