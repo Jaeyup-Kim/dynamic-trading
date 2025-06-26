@@ -474,9 +474,9 @@ def remove_duplicates(sell_orders, buy_orders):
 
 #  색상 지정
 def highlight_order(row):
-    if row["매매유형"] == "Buy":
+    if row["매매유형"] == "Sell":
         return ['background-color: #D9EFFF'] * len(row)  # 하늘색
-    elif row["매매유형"] == "Sell":
+    elif row["매매유형"] == "Buy":
         return ['background-color: #FFE6E6'] * len(row)  # 분홍색
     else:
         return [''] * len(row)
