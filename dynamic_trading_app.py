@@ -478,10 +478,10 @@ def remove_duplicates(sell_orders, buy_orders):
 st.title("📈 동적매매 전략 시뮬레이터")
 
 target_ticker = st.text_input("투자 티커", value="SOXL")
-first_amt = st.number_input("투자금액", value=20000.0, step=500.0)
+first_amt = st.number_input("투자금액", value=20000, step=500)
 
-# 표시용 콤마 포맷 (예: 20,000.00)
-st.markdown(f"**입력한 투자금액:** {first_amt:,.2f}")
+# 표시용 콤마 포맷 (예: 20,0000)
+st.markdown(f"**입력한 투자금액:** {first_amt:,}")
 
 #amt_str = st.text_input("투자금액", "20,000")
 #first_amt = int(amt_str.replace(",", ""))
