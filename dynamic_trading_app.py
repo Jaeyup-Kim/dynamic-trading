@@ -151,8 +151,10 @@ def extract_orders(df):
                 sell_orders.append(Order("Sell", "MOC", price, qty))
                 #print("----->>>>> sell_orders2 : ", sell_orders)                
 
-
+    if df.empty:
+        return [], []
     last_row = df.iloc[-1]
+
     if pd.notna(last_row['LOC매수목표']) and pd.notna(last_row['목표량']):
         price = round(last_row['LOC매수목표'], 2)
         qty = int(last_row['목표량'])
@@ -349,9 +351,9 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
             "주문유형": order_type
         })
     
-    ##return pd.DataFrame(result)
-    df = pd.DataFrame(result)
-    df["변동률"] = pd.to_numeric(df["변동률"], errors="coerce")  # 안전하게 float 변환
+    return pd.DataFrame(result)
+    ##df = pd.DataFrame(result)
+    #df["변동률"] = pd.to_numeric(df["변동률"], errors="coerce")  # 안전하게 float 변환
 
     return df
 
