@@ -363,10 +363,10 @@ def print_table(orders):
     주문 리스트를 DataFrame으로 변환
     """
     df = pd.DataFrame([{
-        "Side": order.side,
-        "Type": order.type,
-        "Price": round(order.price, 2),
-        "Quantity": order.quantity
+        "매매유형": order.side,
+        "주문유형": order.type,
+        "주문가": round(order.price, 2),
+        "수량": order.quantity
     } for order in orders])
 
     #print("--- df : ", df)
