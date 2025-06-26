@@ -153,6 +153,7 @@ def extract_orders(df):
 
     if df.empty:
         return [], []
+    
     last_row = df.iloc[-1]
 
     if pd.notna(last_row['LOC매수목표']) and pd.notna(last_row['목표량']):
@@ -325,7 +326,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
             actual_sell_qty = None
             actual_sell_amount = None
             order_type = ""
-         
+
         # 결과 누적
         result.append({
             "일자": day.date(),
@@ -335,7 +336,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
             "전일종가": prev_close,
             #"변동률": round((actual_close - prev_close) / prev_close * 100, 2) if actual_close else None,
             "변동률": round((actual_close - prev_close) / prev_close * 100, 2)
-            if isinstance(actual_close, (int, float)) and prev_close else np.nan,
+            if isinstance(actual_close, (int, float)) and prev_close else np.nan,            
             "매수예정": daily_buy_amount,
             "LOC매수목표": target_price,
             "목표량": target_qty,
@@ -350,12 +351,12 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
             "실제매도금액": actual_sell_amount,
             "주문유형": order_type
         })
-    
-    return pd.DataFrame(result)
-    ##df = pd.DataFrame(result)
+
+    #df = pd.DataFrame(result)
     #df["변동률"] = pd.to_numeric(df["변동률"], errors="coerce")  # 안전하게 float 변환
 
-    return df
+    #return df
+    return pd.DataFrame(result)
 
 # ---------- 출력 ----------
 def print_table(orders):
@@ -478,8 +479,13 @@ st.title("📈 동적매매 전략 시뮬레이터")
 
 target_ticker = st.text_input("투자 티커", value="SOXL")
 first_amt = st.number_input("투자금액", value=20000.0, step=500.0)
+
 # 표시용 콤마 포맷 (예: 20,000.00)
 st.markdown(f"**입력한 투자금액:** {first_amt:,.2f}")
+
+#amt_str = st.text_input("투자금액", "20,000")
+#first_amt = int(amt_str.replace(",", ""))
+#st.write("입력한 금액:", f"{first_amt:,}")
 
 start_date = st.date_input("시작일자", value= datetime.today() - timedelta(days=60))
 end_date = st.date_input("종료일자", value=datetime.today())
@@ -498,7 +504,7 @@ if st.button("▶ 전략 실행"):
         st.success("전략 실행 완료!")
         st.subheader("📊 전략 결과 테이블")
         #st.dataframe(printable_df.style.format(precision=2), use_container_width=True)
-        st.dataframe(printable_df, use_container_width=True)
+        st.dataframe(printable_df.reset_index(drop=True), use_container_width=True)
         #st.table(printable_df)
 
         csv = printable_df.to_csv(index=False).encode('utf-8')
@@ -518,5 +524,5 @@ if st.button("▶ 전략 실행"):
     #print("--"*20)
     #print("sell : ", df_sell)    
     st.subheader("📊 퉁치기 결과 테이블")
-    st.dataframe(df_result, use_container_width=True)
+    st.dataframe(df_result.reset_index(drop=True), use_container_width=True)
     
