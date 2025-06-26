@@ -531,6 +531,9 @@ if st.button("▶ 전략 실행"):
     #print("--"*20)
     #print("sell : ", df_sell)    
     st.subheader("📊 당일 주문 리스트")
-    styled_df = df_result.style.apply(highlight_order, axis=1)
+    styled_df = (df_result
+                 .style
+                 .apply(highlight_order, axis=1).format({"주문가": "{:.2f}"})
+                ) 
     st.dataframe(styled_df, use_container_width=True)
     
