@@ -5,4 +5,4 @@ pandas_market_calendars
 datetime
 timedelta
 numpy
-FinanceDataReader
+finance-datareader
