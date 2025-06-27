@@ -310,7 +310,11 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
                 else:
                     order_type = "LOC"
             else:
-                order_type = "MOC"  
+                #  MOC 매도일과 살제매도일이 같으면 MOC
+                if moc_sell_date == actual_sell_date:
+                    order_type = "MOC"
+                else:               	                    	
+                    order_type = "LOC"  
 
         # 매수 미체결 시: 관련 값 모두 초기화
         elif actual_close is not None and target_price < actual_close:
