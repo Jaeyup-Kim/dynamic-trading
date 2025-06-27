@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import pandas_market_calendars as mcal
 from collections import namedtuple
 import numpy as np
-
+import FinanceDataReader as fdr
 
 ### ---------------------------------------
 # ✅ RSI 계산 함수
@@ -29,13 +29,23 @@ def get_week_num(date):
 # ---------------------------------------
 # ✅ 주요 파라미터 (전략 설정값)
 # ---------------------------------------
-DIV_CNT = 7
-SAFE_BUY_THRESHOLD = 0.03
-AGGRESSIVE_BUY_THRESHOLD = 0.05
-SELL_SAFE_THRESHOLD = 0.002
-SELL_AGGRESSIVE_THRESHOLD = 0.025
-HOLD_DAYS_SAFE = 30
-HOLD_DAYS_AGGRESSIVE = 20
+DIV_CNT = 7                        # 분할횟수
+
+# 안전모드 설정
+SAFE_BUY_THRESHOLD = 0.03          # 안전모드 매수조건이율
+SAFE_SELL_THRESHOLD = 0.002        # 안전모드 매도조건이율
+SAFE_HOLD_DAYS = 30                # 안전모드 최대보유일수
+
+# 공세모드 설정
+AGGR_BUY_THRESHOLD = 0.05          # 공세모드 매수조건이율
+AGGR_SELL_THRESHOLD = 0.025        # 공세모드 매도조건이율
+AGGR_HOLD_DAYS = 7                 # 공세모드 최대보유일수
+
+
+# 투자금 갱신 설정
+PRFT_CMPND_INT_RT = 0.8            # 이익복리율
+LOSS_CMPND_INT_RT = 0.3            # 손실복리율
+INVT_RENWL_CYLE   = 10             # 투자금갱신주기
 
 # 주문 정보 구조 정의
 Order = namedtuple('Order', ['side', 'type', 'price', 'quantity'])
@@ -193,21 +203,15 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
     nyse = mcal.get_calendar("XNYS")
     all_days = nyse.schedule(
         start_date=qqq_start.strftime("%Y-%m-%d"),
-        end_date=(end_dt + pd.Timedelta(days=HOLD_DAYS_SAFE + 10)).strftime("%Y-%m-%d")
+        end_date=(end_dt + pd.Timedelta(days=SAFE_HOLD_DAYS + 10)).strftime("%Y-%m-%d")
     )
     market_days = all_days.index.normalize()
-    ##print("최종 날짜 포함 여부:", pd.Timestamp("2025-06-23") in market_days)
 
-    #print("SOXL 데이터 존재 여부:", pd.Timestamp("2025-06-23") in soxl_hist.index)
+    # QQQ 데이터 FDR로 가져오기
+    qqq = fdr.DataReader("QQQ", qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
+    qqq.index = pd.to_datetime(qqq.index)
 
-    #print("-------------- end_dt ", end_dt)
-
-    # QQQ 데이터 불러오기 및 RSI 계산
-    qqq = yf.Ticker("QQQ")
-    qqq_hist = qqq.history(start=qqq_start.strftime("%Y-%m-%d"), end=end_dt.strftime("%Y-%m-%d"))
-    #print("-------------- qqq_hist ", qqq_hist)
-    qqq_hist.index = qqq_hist.index.normalize()
-    weekly = get_last_trading_day_each_week(qqq_hist)
+    weekly = get_last_trading_day_each_week(qqq)
     weekly_rsi = calculate_rsi_rolling(weekly).dropna(subset=["RSI"])
     weekly_rsi['모드'] = assign_mode_v2(weekly_rsi['RSI'])
     weekly_rsi['year'] = weekly_rsi.index.to_series().dt.year
@@ -216,14 +220,9 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
     mode_by_year_week = weekly_rsi.set_index(['year', 'week'])[['모드', 'RSI', 'rsi_date']]
     #print("mode_by_year_week :", mode_by_year_week)
 
-    # SOXL 데이터 불러오기 (실제 매매 타겟 종목)
-    soxl = yf.Ticker(target_ticker)
-    soxl_hist = soxl.history(
-        start=qqq_start.strftime("%Y-%m-%d"),
-        end=(end_dt + pd.Timedelta(days=1)).strftime("%Y-%m-%d"),
-        interval="1d"
-    )
-    soxl_hist.index = pd.to_datetime(soxl_hist.index).tz_localize(None).normalize()
+    # SOXL 데이터 FDR로 가져오기
+    soxl = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
+    soxl.index = pd.to_datetime(soxl.index)
 
     result = []
 
@@ -247,13 +246,13 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
         rsi_date = row['rsi_date']
 
         # 전일 종가 조회
-        prev_days = soxl_hist.index[soxl_hist.index < day]
+        prev_days = soxl.index[soxl.index < day]
         if len(prev_days) == 0:
             continue
-        prev_close = round(soxl_hist.loc[prev_days[-1], 'Close'], 2)
+        prev_close = round(soxl.loc[prev_days[-1], 'Close'], 2)
 
         # 해당일 종가 (체결 여부 판단용)
-        actual_close = soxl_hist.loc[day, 'Close'] if day in soxl_hist.index else None
+        actual_close = soxl.loc[day, 'Close'] if day in soxl.index else None
         if pd.isna(actual_close):
             actual_close = None
         if actual_close is not None:
@@ -262,12 +261,12 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
         # 모드에 따라 목표가 및 보유일 설정
         if mode == "안전":
             target_price = round(prev_close * (1 + SAFE_BUY_THRESHOLD), 2)
-            sell_target_price = round((actual_close or target_price) * (1 + SELL_SAFE_THRESHOLD), 2)
-            holding_days = HOLD_DAYS_SAFE
+            sell_target_price = round((actual_close or target_price) * (1 + SAFE_SELL_THRESHOLD), 2)
+            holding_days = SAFE_HOLD_DAYS
         else:
-            target_price = round(prev_close * (1 + AGGRESSIVE_BUY_THRESHOLD), 2)
-            sell_target_price = round((actual_close or target_price) * (1 + SELL_AGGRESSIVE_THRESHOLD), 2)
-            holding_days = HOLD_DAYS_AGGRESSIVE
+            target_price = round(prev_close * (1 + AGGR_BUY_THRESHOLD), 2)
+            sell_target_price = round((actual_close or target_price) * (1 + AGGR_SELL_THRESHOLD), 2)
+            holding_days = AGGR_HOLD_DAYS
 
         # 목표 수량 계산
         target_qty = int(daily_buy_amount // target_price)
@@ -288,16 +287,16 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
         if actual_close and target_price >= actual_close:
             # 보유 기간 내 종가가 매도 목표가를 넘긴 경우 매도 성사            
             hold_range = market_days[(market_days >= day)][:holding_days]
-            future_prices = soxl_hist.loc[soxl_hist.index.isin(hold_range)]
+            future_prices = soxl.loc[soxl.index.isin(hold_range)]
 
             match = future_prices[future_prices['Close'] >= sell_target_price]
             if not match.empty:
                 actual_sell_date = match.index[0].date()
                 actual_sell_price = round(match.iloc[0]['Close'], 2)
-            elif moc_sell_date and pd.Timestamp(moc_sell_date) in soxl_hist.index:
+            elif moc_sell_date and pd.Timestamp(moc_sell_date) in soxl.index:
                 # 조건 달성 실패 시 MOC 매도                
                 actual_sell_date = moc_sell_date
-                actual_sell_price = round(soxl_hist.loc[pd.Timestamp(moc_sell_date)]['Close'], 2)
+                actual_sell_price = round(soxl.loc[pd.Timestamp(moc_sell_date)]['Close'], 2)
 
             if actual_sell_price:
                 actual_sell_qty = actual_qty
