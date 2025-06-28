@@ -491,8 +491,10 @@ def highlight_order(row):
 st.title("📈 RSI 동적 매매")
 
 # 티커명
-ticker_input = st.text_input("투자 티커", value="SOXL")
-target_ticker = ticker_input.upper()
+##ticker_input = st.text_input("투자 티커", value="SOXL")
+##target_ticker = ticker_input.upper()
+
+target_ticker = st.selectbox('티커 ', ('SOXL','KORU','TQQQ','BITU'))
 
 # 최초투자금액
 first_amt = st.number_input("투자금액", value=20000, step=500)
