@@ -504,7 +504,7 @@ st.markdown(f"**입력한 투자금액:** {first_amt:,}")
 #first_amt = int(amt_str.replace(",", ""))
 #st.write("입력한 금액:", f"{first_amt:,}")
 
-start_date = st.date_input("시작일자", value= datetime.today() - timedelta(days=60))
+start_date = st.date_input("시작일자", value= datetime.today() - timedelta(days=14))
 end_date = st.date_input("종료일자", value=datetime.today())
 
 if st.button("▶ 전략 실행"):
