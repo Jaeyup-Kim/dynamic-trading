@@ -490,7 +490,11 @@ def highlight_order(row):
 # ---------------------------------------
 st.title("📈 RSI 동적 매매")
 
-target_ticker = st.text_input("투자 티커", value="SOXL")
+# 티커명
+ticker_input = st.text_input("투자 티커", value="SOXL")
+target_ticker = ticker_input.upper()
+
+# 최초투자금액
 first_amt = st.number_input("투자금액", value=20000, step=500)
 
 # 표시용 콤마 포맷 (예: 20,0000)
@@ -504,19 +508,23 @@ start_date = st.date_input("시작일자", value= datetime.today() - timedelta(d
 end_date = st.date_input("종료일자", value=datetime.today())
 
 if st.button("▶ 전략 실행"):
-    st.info("전략 실행 중입니다...")
+    status_placeholder = st.empty()
+    status_placeholder.info("전략 실행 중입니다...")
 
     df_result = get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt)
 
     # NaN 및 None 값을 빈 문자열로 대체하여 출력
-    printable_df = df_result.where(pd.notnull(df_result), "")
+    #printable_df = df_result.where(pd.notnull(df_result), "")
+    printable_df = df_result.replace({None: np.nan})
 
     if printable_df.empty:
+        status_placeholder.empty()
         st.warning("데이터가 없습니다. 입력 조건을 확인하세요.")
     else:
+        status_placeholder.empty()
         st.success("전략 실행 완료!")
 
-        # ✅ 누적 수익 및 수익률 계산
+        # ✅ 누적 매매손익
         total_profit = df_result.dropna(subset=["실제매도금액", "매수금액"]).apply(
             lambda row: (row["실제매도금액"] - row["매수금액"]), axis=1
         ).sum()
@@ -524,21 +532,44 @@ if st.button("▶ 전략 실행"):
         #total_invested = df_result.dropna(subset=["매수금액"]).apply(
         #    lambda row: row["매수금액"], axis=1
         #).sum()
-
+        
+        # 수익률(누적매매손익 / 투자원금)
         #profit_ratio = (total_profit / total_invested * 100) if total_invested else 0
         profit_ratio = (total_profit / first_amt * 100)
 
-        # 💹 수익 & 수익률 표시
+        # 💹 누적매매손익 & 수익률 표시
         col1, col2 = st.columns(2)
-        col1.metric("📈 누적 수익", f"{total_profit:,.2f} USD")
-        col2.metric("📊 수익률", f"{profit_ratio:.2f} %")
+        col1.metric("📈 누적 매매손익", f"{total_profit:,.2f} USD")
+        col2.metric("📊 수익률(누적매매손익 / 투자원금)", f"{profit_ratio:.2f} %")
+
+
+        styled_df = (
+            printable_df.style.format(
+                {
+                    "전일종가": "{:,.2f}",
+                    "변동률": "{:,.2f}",
+                    "매수예정": "{:,.2f}",
+                    "LOC매수목표": "{:,.2f}",
+                    "목표량": "{:.0f}",
+                    "매수가": "{:,.2f}",
+                    "매수량": "{:.0f}",
+                    "매수금액": "{:,.2f}",
+                    "매도목표가": "{:,.2f}",
+                    "실제매도가": "{:,.2f}",
+                    "실제매도량": "{:.0f}",
+                    "실제매도금액": "{:,.2f}",
+                    "매매손익": "{:,.2f}"
+                },
+                na_rep=""
+            )
+        )
 
         st.subheader("📊 매매 리스트")
 
-        st.dataframe(printable_df.reset_index(drop=True), use_container_width=True)
+        st.dataframe(styled_df, use_container_width=True)
 
         #csv = printable_df.to_csv(index=False).encode('utf-8')
-        csv = printable_df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+        csv = df_result.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
 
         st.download_button("⬇️ CSV 다운로드", csv, "strategy_result.csv", "text/csv")
 
