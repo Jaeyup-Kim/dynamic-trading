@@ -336,7 +336,6 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
             #"RSI일자": rsi_date,
             #"RSI": rsi,
             "종가": today_close,
-            #"변동률": round((actual_close - prev_close) / prev_close * 100, 2) if actual_close else None,
             "변동률": round((today_close - prev_close) / prev_close * 100, 2)
             if isinstance(today_close, (int, float)) and prev_close else np.nan,            
             "매수예정": daily_buy_amount,
@@ -355,10 +354,6 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
             "주문유형": order_type
         })
 
-    #df = pd.DataFrame(result)
-    #df["변동률"] = pd.to_numeric(df["변동률"], errors="coerce")  # 안전하게 float 변환
-
-    #return df
     return pd.DataFrame(result)
 
 # ----------퉁치기 표 출력 ----------
@@ -513,6 +508,7 @@ if st.button("▶ 전략 실행"):
     # NaN 및 None 값을 빈 문자열로 대체하여 출력
     #printable_df = df_result.where(pd.notnull(df_result), "")
     printable_df = df_result.replace({None: np.nan})
+    printable_df = printable_df.astype(str).replace({"None": "", "nan": ""})
 
     if printable_df.empty:
         status_placeholder.empty()
@@ -539,51 +535,44 @@ if st.button("▶ 전략 실행"):
         col1.metric("📈 누적 매매손익", f"{total_profit:,.2f} USD")
         col2.metric("📊 수익률(누적매매손익 / 투자원금)", f"{profit_ratio:.2f} %")
 
+        #print("----1111> :", printable_df.isnull().sum())
 
-        styled_df = (
-            printable_df.style.format(
-                {
-                    "종가": "{:,.2f}",
-                    "변동률": "{:,.2f}",
-                    "매수예정": "{:,.2f}",
-                    "LOC매수목표": "{:,.2f}",
-                    "목표량": "{:.0f}",
-                    "매수가": "{:,.2f}",
-                    "매수량": "{:.0f}",
-                    "매수금액": "{:,.2f}",
-                    "매도목표가": "{:,.2f}",
-                    "실제매도가": "{:,.2f}",
-                    "실제매도량": "{:.0f}",
-                    "실제매도금액": "{:,.2f}",
-                    "매매손익": "{:,.2f}"
-                },
-                na_rep=""
-            )
-        )
+        # lambda에서 Null 아 아니고 숫자 아닌 경우 빈값으로 처리
+        styled_df = printable_df.style.format({
+            "종가": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
+            "변동률": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
+            "매수예정": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
+            "LOC매수목표": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
+            "목표량": lambda x: "{:.0f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
+            "매수가": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
+            "매수량": lambda x: "{:.0f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
+            "매수금액": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
+            "매도목표가": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
+            "실제매도가": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
+            "실제매도량": lambda x: "{:.0f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
+            "실제매도금액": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
+            "매매손익": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
+        })
 
         st.subheader("📊 매매 리스트")
 
-        ##clean_df = printable_df.fillna("")
-        st.dataframe(styled_df, use_container_width=True)
+        st.dataframe(styled_df)
 
-        #csv = printable_df.to_csv(index=False).encode('utf-8')
         csv = df_result.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
 
         st.download_button("⬇️ CSV 다운로드", csv, "strategy_result.csv", "text/csv")
 
-
+    # 퉁치기 대상 주문 추출
     sell_orders, buy_orders = extract_orders(df_result)
     print_orders(sell_orders, buy_orders)
-
+    
+    # 퉁치기
     remove_duplicates(sell_orders, buy_orders)
 
     df_sell = print_table(sell_orders)
     df_buy = print_table(buy_orders)
     df_result = pd.concat([df_sell, df_buy], ignore_index=True)
-
-    #print("buy : ", df_buy)
-    #print("--"*20)
-    #print("sell : ", df_sell)    
+  
     st.subheader("📊 당일 주문 리스트")
     styled_df = (df_result
                  .style
