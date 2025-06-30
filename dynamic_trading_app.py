@@ -488,16 +488,39 @@ st.title("📈 RSI 동적 매매")
 ##ticker_input = st.text_input("투자 티커", value="SOXL")
 ##target_ticker = ticker_input.upper()
 
-target_ticker = st.selectbox('티커 ', ('SOXL','KORU','TQQQ','BITU'))
+# target_ticker = st.selectbox('티커 ', ('SOXL','KORU','TQQQ','BITU'))
 
-# 최초투자금액
-first_amt = st.number_input("투자금액", value=20000, step=500)
+# # 최초투자금액
+# first_amt = st.number_input("투자금액", value=20000, step=500)
 
-# 표시용 콤마 포맷 (예: 20,0000)
-st.markdown(f"**입력한 투자금액:** {first_amt:,}")
+# # 표시용 콤마 포맷 (예: 20,0000)
+# st.markdown(f"**입력한 투자금액:** {first_amt:,}")
 
-start_date = st.date_input("시작일자", value= datetime.today() - timedelta(days=14))
-end_date = st.date_input("종료일자", value=datetime.today())
+# start_date = st.date_input("시작일자", value= datetime.today() - timedelta(days=14))
+# end_date = st.date_input("종료일자", value=datetime.today())
+
+from datetime import datetime, timedelta
+import streamlit as st
+
+# 첫 번째 줄: 티커 선택 + 투자금액 입력
+col1, col2 = st.columns(2)
+
+with col1:
+    target_ticker = st.selectbox('티커', ('SOXL', 'KORU', 'TQQQ', 'BITU'))
+
+with col2:
+    first_amt = st.number_input("투자금액", value=20000, step=500)
+    st.markdown(f"**입력한 투자금액:** {first_amt:,}")
+
+# 두 번째 줄: 시작일자 + 종료일자
+col3, col4 = st.columns(2)
+
+with col3:
+    start_date = st.date_input("시작일자", value=datetime.today() - timedelta(days=14))
+
+with col4:
+    end_date = st.date_input("종료일자", value=datetime.today())
+
 
 if st.button("▶ 전략 실행"):
     status_placeholder = st.empty()
