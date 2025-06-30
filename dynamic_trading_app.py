@@ -209,12 +209,16 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
     qqq = fdr.DataReader("QQQ", qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
     qqq.index = pd.to_datetime(qqq.index)
 
+    ##print("-----------qqq.index :\n", qqq.index )
+
     weekly = get_last_trading_day_each_week(qqq)
     weekly_rsi = calculate_rsi_rolling(weekly).dropna(subset=["RSI"])
     weekly_rsi['모드'] = assign_mode_v2(weekly_rsi['RSI'])
     weekly_rsi['year'] = weekly_rsi.index.to_series().dt.year
     weekly_rsi['week'] = weekly_rsi.index.to_series().apply(get_weeknum_google_style)
     weekly_rsi['rsi_date'] = weekly_rsi.index.date
+
+    ##print("-----------weekly_rsi.index.date :\n", weekly_rsi.index.date )
     mode_by_year_week = weekly_rsi.set_index(['year', 'week'])[['모드', 'RSI', 'rsi_date']]
     #print("mode_by_year_week :", mode_by_year_week)
 
@@ -225,6 +229,8 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
     result = []
 
     # 각 거래일마다 전략 수립    
+    last_valid_row = None  # 직전 유효 RSI/모드를 저장할 변수
+
     for day in market_days:
         if day < start_dt or day > end_dt:
             continue
@@ -233,12 +239,28 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
         year = day.year
         week = get_weeknum_google_style(day)
 
-        if (year, week) not in mode_by_year_week.index:
-            continue
+        ##print("-----------year, week, day :\n", year, week, day )
 
-        row = mode_by_year_week.loc[(year, week)]
+        try:
+            row = mode_by_year_week.loc[(year, week)]
+            if pd.notnull(row['RSI']):
+                last_valid_row = row
+            else:
+                if last_valid_row is not None:
+                    row = last_valid_row
+                else:
+                    continue
+        except KeyError:
+            if last_valid_row is not None:
+                row = last_valid_row
+            else:
+                # 직전 유효 값도 없으면 스킵
+                continue
+
+        ##print("/n-----------row1 :", row )
+
         mode = row['모드']
-        rsi = round(row['RSI'], 2)
+        rsi = round(row['RSI'], 2) if pd.notnull(row['RSI']) else None
         rsi_date = row['rsi_date']
 
         # 전일 종가 조회
