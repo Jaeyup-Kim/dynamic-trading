@@ -553,6 +553,9 @@ if st.button("▶ 전략 실행"):
         #profit_ratio = (total_profit / total_invested * 100) if total_invested else 0
         profit_ratio = (total_profit / first_amt * 100)
 
+        # 빈 줄 추가
+        st.markdown("<br>", unsafe_allow_html=True)
+        
         # 💹 누적매매손익 & 수익률 표시
         col1, col2 = st.columns(2)
         col1.metric("📈 누적 매매손익", f"{total_profit:,.2f} USD")
@@ -596,6 +599,9 @@ if st.button("▶ 전략 실행"):
     df_buy = print_table(buy_orders)
     df_result = pd.concat([df_sell, df_buy], ignore_index=True)
   
+    # 빈 줄 추가
+    st.markdown("<br>", unsafe_allow_html=True)
+
     st.subheader("📊 당일 주문 리스트")
     styled_df = (df_result
                  .style
