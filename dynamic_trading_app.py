@@ -143,8 +143,6 @@ def extract_orders(df):
     sell_orders = []
     buy_orders = []
 
-    #print("----->>>>> df >>> : ", df)
-
     for _, row in df.iterrows():
         if pd.notna(row['매도목표가']) and row['매도목표가'] > 0 and pd.isna(row['실제매도일']) and row['주문유형'] != "MOC":              
             price = round(row['매도목표가'], 2)
@@ -234,11 +232,9 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
         # 해당 날짜의 연도 및 주차 정보로 모드(RSI 기반) 조회
         year = day.year
         week = get_weeknum_google_style(day)
-        #print("get_weeknum_google_style1 :", week, day)
+
         if (year, week) not in mode_by_year_week.index:
             continue
-
-        #print("get_weeknum_google_style2 :", week, day)
 
         row = mode_by_year_week.loc[(year, week)]
         mode = row['모드']
@@ -249,6 +245,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
         prev_days = soxl.index[soxl.index < day]
         if len(prev_days) == 0:
             continue
+        
         prev_close = round(soxl.loc[prev_days[-1], 'Close'], 2)
 
         # 해당일 종가 (체결 여부 판단용)
@@ -257,6 +254,8 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
             actual_close = None
         if actual_close is not None:
             actual_close = round(actual_close, 2)
+
+        today_close = actual_close #  당일 종가 화면 출력용
 
         # 모드에 따라 목표가 및 보유일 설정
         if mode == "안전":
@@ -336,10 +335,10 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
             "모드": mode,
             #"RSI일자": rsi_date,
             #"RSI": rsi,
-            "전일종가": prev_close,
+            "종가": today_close,
             #"변동률": round((actual_close - prev_close) / prev_close * 100, 2) if actual_close else None,
-            "변동률": round((actual_close - prev_close) / prev_close * 100, 2)
-            if isinstance(actual_close, (int, float)) and prev_close else np.nan,            
+            "변동률": round((today_close - prev_close) / prev_close * 100, 2)
+            if isinstance(today_close, (int, float)) and prev_close else np.nan,            
             "매수예정": daily_buy_amount,
             "LOC매수목표": target_price,
             "목표량": target_qty,
@@ -502,10 +501,6 @@ first_amt = st.number_input("투자금액", value=20000, step=500)
 # 표시용 콤마 포맷 (예: 20,0000)
 st.markdown(f"**입력한 투자금액:** {first_amt:,}")
 
-#amt_str = st.text_input("투자금액", "20,000")
-#first_amt = int(amt_str.replace(",", ""))
-#st.write("입력한 금액:", f"{first_amt:,}")
-
 start_date = st.date_input("시작일자", value= datetime.today() - timedelta(days=14))
 end_date = st.date_input("종료일자", value=datetime.today())
 
@@ -548,7 +543,7 @@ if st.button("▶ 전략 실행"):
         styled_df = (
             printable_df.style.format(
                 {
-                    "전일종가": "{:,.2f}",
+                    "종가": "{:,.2f}",
                     "변동률": "{:,.2f}",
                     "매수예정": "{:,.2f}",
                     "LOC매수목표": "{:,.2f}",
@@ -568,6 +563,7 @@ if st.button("▶ 전략 실행"):
 
         st.subheader("📊 매매 리스트")
 
+        ##clean_df = printable_df.fillna("")
         st.dataframe(styled_df, use_container_width=True)
 
         #csv = printable_df.to_csv(index=False).encode('utf-8')
