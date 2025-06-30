@@ -148,7 +148,7 @@ def extract_orders(df):
             price = round(row['매도목표가'], 2)
             qty = int(row['매수량']) if pd.notna(row['매수량']) else 0
             if qty > 0:
-                sell_orders.append(Order("Sell", "LOC", price, qty))
+                sell_orders.append(Order("매도", "LOC", price, qty))
                # print("----->>>>> sell_orders1 : ", sell_orders)
 
         # 실제매도일이 미입력이고 MOC매도일이 존재하고 주문유형이 MOC일 경우        
@@ -156,7 +156,7 @@ def extract_orders(df):
             price = round(row['매도목표가'], 2)
             qty = int(row['매수량']) if pd.notna(row['매수량']) else 0
             if qty > 0:
-                sell_orders.append(Order("Sell", "MOC", price, qty))
+                sell_orders.append(Order("매도", "MOC", price, qty))
                 #print("----->>>>> sell_orders2 : ", sell_orders)                
 
     if df.empty:
@@ -168,7 +168,7 @@ def extract_orders(df):
         price = round(last_row['LOC매수목표'], 2)
         qty = int(last_row['목표량'])
         if qty > 0:
-            buy_orders.append(Order("Buy", "LOC", price, qty))
+            buy_orders.append(Order("매수", "LOC", price, qty))
             #print("----->>>>> buy_orders1 : ", buy_orders)            
 
     #print("----->>>>> sell_orders9 : ", sell_orders)
@@ -452,14 +452,14 @@ def remove_duplicates(sell_orders, buy_orders):
     # MOC 매도 주문 처리
     if b_exist_moc:
         if sell_moc_order.quantity > buy_order.quantity:
-            new_sell_orders.append(Order("Sell","MOC", 0.0, sell_moc_order.quantity - buy_order.quantity ))
+            new_sell_orders.append(Order("매도","MOC", 0.0, sell_moc_order.quantity - buy_order.quantity ))
             buy_order = buy_order._replace(quantity=0)
         elif sell_moc_order.quantity == buy_order.quantity:
             buy_order = buy_order._replace(quantity=0)
         else:
             buy_order = buy_order._replace(quantity=buy_order.quantity - sell_moc_order.quantity)
             if not filtered_sell_orders:
-                new_sell_orders.append(Order("Sell","LOC", round(buy_order.price + 0.01, 2), sell_moc_order.quantity))
+                new_sell_orders.append(Order("매도","LOC", round(buy_order.price + 0.01, 2), sell_moc_order.quantity))
 
     filtered_sell_orders.sort(key=lambda x: x.price)
 
@@ -470,21 +470,21 @@ def remove_duplicates(sell_orders, buy_orders):
             continue
 
         if sell_order.quantity >= buy_order.quantity:
-            new_buy_orders.append(Order("Buy","LOC", round(sell_order.price - 0.01, 2), buy_order.quantity))
+            new_buy_orders.append(Order("매수","LOC", round(sell_order.price - 0.01, 2), buy_order.quantity))
             if sell_order.quantity > buy_order.quantity:
-                new_sell_orders.append(Order("Sell","LOC", round(sell_order.price, 2), sell_order.quantity - buy_order.quantity))
+                new_sell_orders.append(Order("매도","LOC", round(sell_order.price, 2), sell_order.quantity - buy_order.quantity))
             buy_order = buy_order._replace(quantity=0)
         else:
-            new_buy_orders.append(Order("Buy","LOC", round(sell_order.price - 0.01, 2), sell_order.quantity))
+            new_buy_orders.append(Order("매수","LOC", round(sell_order.price - 0.01, 2), sell_order.quantity))
             buy_order = buy_order._replace(quantity=buy_order.quantity - sell_order.quantity)
 
     if buy_order.quantity != 0:
-        new_buy_orders.append(Order("Buy","LOC", round(buy_order.price, 2), buy_order.quantity))
+        new_buy_orders.append(Order("매수","LOC", round(buy_order.price, 2), buy_order.quantity))
         sell_quant = sum(order.quantity for order in filtered_sell_orders)
         if sell_quant != 0:
-            new_sell_orders.append(Order("Sell","LOC", round(buy_order.price + 0.01, 2), sell_quant))
+            new_sell_orders.append(Order("매도","LOC", round(buy_order.price + 0.01, 2), sell_quant))
     else:
-        new_sell_orders.append(Order("Sell","LOC", round(buy_order.price + 0.01, 2), buy_order_quantity))
+        new_sell_orders.append(Order("매도","LOC", round(buy_order.price + 0.01, 2), buy_order_quantity))
 
     new_sell_orders.sort(key=lambda x: x.price, reverse=True)
     new_buy_orders.sort(key=lambda x: x.price, reverse=True)
@@ -494,9 +494,9 @@ def remove_duplicates(sell_orders, buy_orders):
 
 # ----- 퉁치기 표 색상 지정
 def highlight_order(row):
-    if row["매매유형"] == "Sell":
+    if row["매매유형"] == "매도":
         return ['background-color: #D9EFFF'] * len(row)  # 하늘색
-    elif row["매매유형"] == "Buy":
+    elif row["매매유형"] == "매수":
         return ['background-color: #FFE6E6'] * len(row)  # 분홍색
     else:
         return [''] * len(row)
@@ -561,6 +561,25 @@ if st.button("▶ 전략 실행"):
     else:
         status_placeholder.empty()
         st.success("전략 실행 완료!")
+       
+        
+        total_buy_qty = df_result["매수량"].fillna(0).sum()
+        total_buy_amt = df_result["매수금액"].fillna(0).sum()
+
+        total_sell_qty = df_result["실제매도량"].fillna(0).sum()
+        total_sell_amt = df_result["실제매도금액"].fillna(0).sum()
+
+        # 보유량 계산
+        total_qty = int(total_buy_qty - total_sell_qty)
+
+        # 보유 매수원가
+        holding_cost = total_buy_amt - total_sell_amt
+
+        # 평균 단가
+        if total_qty > 0:
+            avg_prc = holding_cost / total_qty
+        else:
+            avg_prc = 0
 
         # ✅ 누적 매매손익
         total_profit = df_result.dropna(subset=["실제매도금액", "매수금액"]).apply(
@@ -578,10 +597,32 @@ if st.button("▶ 전략 실행"):
         # 빈 줄 추가
         st.markdown("<br>", unsafe_allow_html=True)
         
+        ## print("-----------total_qty : ", total_qty)
         # 💹 누적매매손익 & 수익률 표시
-        col1, col2 = st.columns(2)
-        col1.metric("📈 누적 매매손익", f"{total_profit:,.2f} USD")
-        col2.metric("📊 수익률(누적매매손익 / 투자원금)", f"{profit_ratio:.2f} %")
+        # col1, col2, col3, col4 = st.columns(4)
+        # col1.metric("📦 보유량", f"{total_qty:,} 주")  
+        # col2.metric("💵 평균 단가", f"${avg_prc:,.2f}")
+        # col3.metric("📈 누적 매매손익", f"${total_profit:,.2f}")
+        # col4.metric("📊 수익률(누적매매손익 / 투자원금)", f"{profit_ratio:.2f} %")
+
+        summary_data = {
+            "항목": [
+                "📦 현재 보유량",
+                "💵 평균 단가",
+                "📈 누적 매매손익",
+                "📊 수익률(누적매매손익 / 투자원금)"
+            ],
+            "값": [
+                f"{total_qty:,} 주",
+                f"${avg_prc:,.2f}",
+                f"${total_profit:,.2f}",
+                f"{profit_ratio:.2f} %"
+            ]
+        }
+        summary_df = pd.DataFrame(summary_data)
+
+        st.subheader("💹 요 약")
+        st.table(summary_df)
 
         #print("----1111> :", printable_df.isnull().sum())
 
@@ -602,6 +643,8 @@ if st.button("▶ 전략 실행"):
             "매매손익": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
         })
 
+        # 빈 줄 추가
+        st.markdown("<br>", unsafe_allow_html=True)
         st.subheader("📊 매매 리스트")
 
         st.dataframe(styled_df)
