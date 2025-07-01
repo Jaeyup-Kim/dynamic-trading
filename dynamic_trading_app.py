@@ -128,7 +128,7 @@ def assign_mode_v2(rsi_series):
 def get_future_market_day(start_day, market_days, offset_days):
     """
     기준일로부터 N일 후의 거래일 반환
-    예: MOC 매도를 위한 미래 보유일 확인
+    예: MOC 매도를 위한 MOC매도일자 계산
     """    
     market_days = market_days[market_days > start_day]
 
@@ -177,7 +177,6 @@ def extract_orders(df):
             buy_orders.append(Order("매수", "LOC", price, qty))
             #print("----->>>>> buy_orders1 : ", buy_orders)            
 
-    #print("----->>>>> sell_orders9 : ", sell_orders)
     return sell_orders, buy_orders
 
 # ---------------------------------------
@@ -220,18 +219,18 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
         # 종료일자의 모드를 구하기 위해 QQQ 데이터가 없더라도 종료 일자는 추가
         qqq.loc[end_dt] = None
 
-    ##print("-----------qqq.index :\n", qqq.index )
-
+    # 각 주차별로 가장 마지막 거래일 데이터를 추출 (주간 RSI 계산용)
     weekly = get_last_trading_day_each_week(qqq)
+
+    # RSI(상대강도지수)를 주어진 기간 기준으로 계산    
     weekly_rsi = calculate_rsi_rolling(weekly).dropna(subset=["RSI"])
+
     weekly_rsi['모드'] = assign_mode_v2(weekly_rsi['RSI'])
     weekly_rsi['year'] = weekly_rsi.index.to_series().dt.year
     weekly_rsi['week'] = weekly_rsi.index.to_series().apply(get_weeknum_google_style)
     weekly_rsi['rsi_date'] = weekly_rsi.index.date
 
-    ##print("-----------weekly_rsi.index.date :\n", weekly_rsi.index.date )
     mode_by_year_week = weekly_rsi.set_index(['year', 'week'])[['모드', 'RSI', 'rsi_date']]
-    ##print("\n -----> mode_by_year_week :", mode_by_year_week)
 
     # SOXL 데이터 FDR로 가져오기
     soxl = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
@@ -240,42 +239,17 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
     result = []
 
     # 각 거래일마다 전략 수립    
-    last_valid_row = None  # 직전 유효 RSI/모드를 저장할 변수
-
     for day in market_days:
         if day < start_dt or day > end_dt:
             continue
 
-        # # 해당 날짜의 연도 및 주차 정보로 모드(RSI 기반) 조회
-        # year = day.year
-        # week = get_weeknum_google_style(day)
-
-        # ##print("-----------year, week, day :\n", year, week, day )
-
-        # try:
-        #     row = mode_by_year_week.loc[(year, week)]
-        #     if pd.notnull(row['RSI']):
-        #         last_valid_row = row
-        #     else:
-        #         if last_valid_row is not None:
-        #             row = last_valid_row
-        #         else:
-        #             continue
-        # except KeyError:
-        #     if last_valid_row is not None:
-        #         row = last_valid_row
-        #     else:
-        #         # 직전 유효 값도 없으면 스킵
-        #         continue
-
         # 해당 날짜의 연도 및 주차 정보로 모드(RSI 기반) 조회
         year = day.year
         week = get_weeknum_google_style(day)
-        #print("get_weeknum_google_style1 :", week, day)
+
         if (year, week) not in mode_by_year_week.index:
             continue
 
-        #print("get_weeknum_google_style2 :", week, day)
 
         row = mode_by_year_week.loc[(year, week)]
         mode = row['모드']
@@ -313,7 +287,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
         actual_qty = int(daily_buy_amount // target_price) if actual_close else None
         buy_amt = round(actual_qty * actual_close, 2) if actual_qty and actual_close else None
 
-        # MOC 매도일 = 보유일 후 첫 거래일
+        # MOC 매도일 = 보유기간 후 첫 거래일
         moc_sell_date = get_future_market_day(day, market_days, holding_days)
 
         # 초기화: 실제 매도 관련 정보
@@ -346,7 +320,6 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
                 # 당일이 MOC 매도일이라면 MOC로 판별                         
                 if moc_sell_date == end_dt.date():
                     order_type = "MOC"
-                    #print("---- MOC-----")
                 else:
                     order_type = "LOC"
             else:
@@ -358,7 +331,6 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
 
         # 매수 미체결 시: 관련 값 모두 초기화
         elif actual_close is not None and target_price < actual_close:
-            #print("모드 존재 여부2:", week, day)            
             actual_close = None
             actual_qty = None
             buy_amt = None
@@ -540,9 +512,6 @@ st.title("📈 RSI 동적 매매")
 # start_date = st.date_input("시작일자", value= datetime.today() - timedelta(days=14))
 # end_date = st.date_input("종료일자", value=datetime.today())
 
-from datetime import datetime, timedelta
-import streamlit as st
-
 # 첫 번째 줄: 티커 선택 + 투자금액 입력
 col1, col2 = st.columns(2)
 
@@ -643,8 +612,6 @@ if st.button("▶ 전략 실행"):
         st.subheader("💹 요 약")
         st.table(summary_df)
 
-        #print("----1111> :", printable_df.isnull().sum())
-
         # lambda에서 Null 아 아니고 숫자 아닌 경우 빈값으로 처리
         styled_df = printable_df.style.format({
             "종가": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
@@ -662,7 +629,7 @@ if st.button("▶ 전략 실행"):
             "매매손익": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
         })
 
-        # 빈 줄 추가
+        # 빈 줄 추가( 간격 띄우기 위함 )
         st.markdown("<br>", unsafe_allow_html=True)
         st.subheader("📊 매매 리스트")
 
