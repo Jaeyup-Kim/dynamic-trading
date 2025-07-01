@@ -72,7 +72,8 @@ def get_last_trading_day_each_week(data):
     data['year'] = data.index.to_series().dt.year
     data['weekday'] = data.index.to_series().dt.weekday
     last_day = data.groupby(['year', 'week'])[['weekday']].idxmax()
-    #print("---last_day :", last_day)
+    #print("---last_day :", last_day)    
+    #print("---data['weekday']  :", data['weekday'] )
     #print("---end last_day ")    
     return data.loc[last_day['weekday']]
 
@@ -89,6 +90,7 @@ def calculate_rsi_rolling(data, period=14):
     data['avg_loss'] = data['loss'].rolling(window=period).mean()
     data['RS'] = (data['avg_gain'] / data['avg_loss']).round(3)
     data['RSI'] = ((data['RS'] / (1 + data['RS'])) * 100).round(2)
+    
     return data
 
 def assign_mode_v2(rsi_series):
@@ -129,8 +131,12 @@ def get_future_market_day(start_day, market_days, offset_days):
     예: MOC 매도를 위한 미래 보유일 확인
     """    
     market_days = market_days[market_days > start_day]
+
+    ##print("--> market_days1 : ", market_days)
     if len(market_days) < offset_days:
         return None
+    
+    ##print("--> market_days2 : ", start_day, market_days[offset_days - 1].date())
     return market_days[offset_days - 1].date()
 
 # ---------- 주문 추출 ----------
@@ -198,7 +204,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
     qqq_start = start_dt - pd.Timedelta(weeks=20)  # RSI 계산을 위한 20주치 데이터 필요
 
     # 거래일 계산 (미국장 기준)
-    nyse = mcal.get_calendar("XNYS")
+    nyse = mcal.get_calendar("NYSE") #NYSE  XNYS
     all_days = nyse.schedule(
         start_date=qqq_start.strftime("%Y-%m-%d"),
         end_date=(end_dt + pd.Timedelta(days=SAFE_HOLD_DAYS + 10)).strftime("%Y-%m-%d")
@@ -208,6 +214,11 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
     # QQQ 데이터 FDR로 가져오기
     qqq = fdr.DataReader("QQQ", qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
     qqq.index = pd.to_datetime(qqq.index)
+
+    # 종료일자가 데이터에 없으면 추가
+    if end_dt not in qqq.index:
+        # 종료일자의 모드를 구하기 위해 QQQ 데이터가 없더라도 종료 일자는 추가
+        qqq.loc[end_dt] = None
 
     ##print("-----------qqq.index :\n", qqq.index )
 
@@ -220,7 +231,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
 
     ##print("-----------weekly_rsi.index.date :\n", weekly_rsi.index.date )
     mode_by_year_week = weekly_rsi.set_index(['year', 'week'])[['모드', 'RSI', 'rsi_date']]
-    #print("mode_by_year_week :", mode_by_year_week)
+    ##print("\n -----> mode_by_year_week :", mode_by_year_week)
 
     # SOXL 데이터 FDR로 가져오기
     soxl = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
@@ -235,30 +246,38 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
         if day < start_dt or day > end_dt:
             continue
 
+        # # 해당 날짜의 연도 및 주차 정보로 모드(RSI 기반) 조회
+        # year = day.year
+        # week = get_weeknum_google_style(day)
+
+        # ##print("-----------year, week, day :\n", year, week, day )
+
+        # try:
+        #     row = mode_by_year_week.loc[(year, week)]
+        #     if pd.notnull(row['RSI']):
+        #         last_valid_row = row
+        #     else:
+        #         if last_valid_row is not None:
+        #             row = last_valid_row
+        #         else:
+        #             continue
+        # except KeyError:
+        #     if last_valid_row is not None:
+        #         row = last_valid_row
+        #     else:
+        #         # 직전 유효 값도 없으면 스킵
+        #         continue
+
         # 해당 날짜의 연도 및 주차 정보로 모드(RSI 기반) 조회
         year = day.year
         week = get_weeknum_google_style(day)
+        #print("get_weeknum_google_style1 :", week, day)
+        if (year, week) not in mode_by_year_week.index:
+            continue
 
-        ##print("-----------year, week, day :\n", year, week, day )
+        #print("get_weeknum_google_style2 :", week, day)
 
-        try:
-            row = mode_by_year_week.loc[(year, week)]
-            if pd.notnull(row['RSI']):
-                last_valid_row = row
-            else:
-                if last_valid_row is not None:
-                    row = last_valid_row
-                else:
-                    continue
-        except KeyError:
-            if last_valid_row is not None:
-                row = last_valid_row
-            else:
-                # 직전 유효 값도 없으면 스킵
-                continue
-
-        ##print("/n-----------row1 :", row )
-
+        row = mode_by_year_week.loc[(year, week)]
         mode = row['모드']
         rsi = round(row['RSI'], 2) if pd.notnull(row['RSI']) else None
         rsi_date = row['rsi_date']
