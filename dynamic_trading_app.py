@@ -29,20 +29,21 @@ def get_week_num(date):
 # ---------------------------------------
 # ✅ 주요 파라미터 (전략 설정값)
 # ---------------------------------------
-DIV_CNT = 7                        # 분할횟수
+# DIV_CNT = 7                        # 분할횟수
 
-# 안전모드 설정
-SAFE_BUY_THRESHOLD = 0.03          # 안전모드 매수조건이율
-SAFE_SELL_THRESHOLD = 0.002        # 안전모드 매도조건이율
-SAFE_HOLD_DAYS = 30                # 안전모드 최대보유일수
+# # 안전모드 설정
+# SAFE_BUY_THRESHOLD = 0.03          # 안전모드 매수조건이율
+# SAFE_SELL_THRESHOLD = 0.002        # 안전모드 매도조건이율
+# SAFE_HOLD_DAYS = 30                # 안전모드 최대보유일수
 
-# 공세모드 설정
-AGGR_BUY_THRESHOLD = 0.05          # 공세모드 매수조건이율
-AGGR_SELL_THRESHOLD = 0.025        # 공세모드 매도조건이율
-AGGR_HOLD_DAYS = 7                 # 공세모드 최대보유일수
+# # 공세모드 설정
+# AGGR_BUY_THRESHOLD = 0.05          # 공세모드 매수조건이율
+# AGGR_SELL_THRESHOLD = 0.025        # 공세모드 매도조건이율
+# AGGR_HOLD_DAYS = 7                 # 공세모드 최대보유일수
 
 
 # 투자금 갱신 설정
+# 복리 투자를 위해 필요하나 이 프로그램에서는 아직 반영하지 않았음
 PRFT_CMPND_INT_RT = 0.8            # 이익복리율
 LOSS_CMPND_INT_RT = 0.3            # 손실복리율
 INVT_RENWL_CYLE   = 10             # 투자금갱신주기
@@ -195,7 +196,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
         pd.DataFrame: 날짜별 매매 전략, 매수/매도 목표가, 체결가, 체결 수량 등 포함된 결과표
     """    
 
-    daily_buy_amount = round(first_amt / DIV_CNT, 2)  # 1회 매수에 사용할 금액
+    daily_buy_amount = round(first_amt / div_cnt, 2)  # 1회 매수에 사용할 금액
 
     # 날짜 전처리
     start_dt = pd.to_datetime(start_date)
@@ -206,7 +207,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
     nyse = mcal.get_calendar("NYSE") #NYSE  XNYS
     all_days = nyse.schedule(
         start_date=qqq_start.strftime("%Y-%m-%d"),
-        end_date=(end_dt + pd.Timedelta(days=SAFE_HOLD_DAYS + 10)).strftime("%Y-%m-%d")
+        end_date=(end_dt + pd.Timedelta(days=safe_hold_days + 10)).strftime("%Y-%m-%d")
     )
     market_days = all_days.index.normalize()
 
@@ -232,9 +233,9 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
 
     mode_by_year_week = weekly_rsi.set_index(['year', 'week'])[['모드', 'RSI', 'rsi_date']]
 
-    # SOXL 데이터 FDR로 가져오기
-    soxl = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
-    soxl.index = pd.to_datetime(soxl.index)
+    # 입력받은 티커의 데이터 FDR로 가져오기
+    ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
+    ticker_data.index = pd.to_datetime(ticker_data.index)
 
     result = []
 
@@ -257,14 +258,14 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
         rsi_date = row['rsi_date']
 
         # 전일 종가 조회
-        prev_days = soxl.index[soxl.index < day]
+        prev_days = ticker_data.index[ticker_data.index < day]
         if len(prev_days) == 0:
             continue
         
-        prev_close = round(soxl.loc[prev_days[-1], 'Close'], 2)
+        prev_close = round(ticker_data.loc[prev_days[-1], 'Close'], 2)
 
         # 해당일 종가 (체결 여부 판단용)
-        actual_close = soxl.loc[day, 'Close'] if day in soxl.index else None
+        actual_close = ticker_data.loc[day, 'Close'] if day in ticker_data.index else None
         if pd.isna(actual_close):
             actual_close = None
         if actual_close is not None:
@@ -274,13 +275,13 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
 
         # 모드에 따라 목표가 및 보유일 설정
         if mode == "안전":
-            target_price = round(prev_close * (1 + SAFE_BUY_THRESHOLD), 2)
-            sell_target_price = round((actual_close or target_price) * (1 + SAFE_SELL_THRESHOLD), 2)
-            holding_days = SAFE_HOLD_DAYS
+            target_price = round(prev_close * (1 + safe_buy_threshold), 2)
+            sell_target_price = round((actual_close or target_price) * (1 + safe_sell_threshold), 2)
+            holding_days = safe_hold_days
         else:
-            target_price = round(prev_close * (1 + AGGR_BUY_THRESHOLD), 2)
-            sell_target_price = round((actual_close or target_price) * (1 + AGGR_SELL_THRESHOLD), 2)
-            holding_days = AGGR_HOLD_DAYS
+            target_price = round(prev_close * (1 + aggr_buy_threshold), 2)
+            sell_target_price = round((actual_close or target_price) * (1 + aggr_sell_threshold), 2)
+            holding_days = aggr_hold_days
 
         # 목표 수량 계산
         target_qty = int(daily_buy_amount // target_price)
@@ -301,16 +302,16 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
         if actual_close and target_price >= actual_close:
             # 보유 기간 내 종가가 매도 목표가를 넘긴 경우 매도 성사            
             hold_range = market_days[(market_days >= day)][:holding_days]
-            future_prices = soxl.loc[soxl.index.isin(hold_range)]
+            future_prices = ticker_data.loc[ticker_data.index.isin(hold_range)]
 
             match = future_prices[future_prices['Close'] >= sell_target_price]
             if not match.empty:
                 actual_sell_date = match.index[0].date()
                 actual_sell_price = round(match.iloc[0]['Close'], 2)
-            elif moc_sell_date and pd.Timestamp(moc_sell_date) in soxl.index:
+            elif moc_sell_date and pd.Timestamp(moc_sell_date) in ticker_data.index:
                 # 조건 달성 실패 시 MOC 매도                
                 actual_sell_date = moc_sell_date
-                actual_sell_price = round(soxl.loc[pd.Timestamp(moc_sell_date)]['Close'], 2)
+                actual_sell_price = round(ticker_data.loc[pd.Timestamp(moc_sell_date)]['Close'], 2)
 
             if actual_sell_price:
                 actual_sell_qty = actual_qty
@@ -497,22 +498,17 @@ def highlight_order(row):
 # ---------------------------------------
 st.title("📈 RSI 동적 매매")
 
-# 티커명
-##ticker_input = st.text_input("투자 티커", value="SOXL")
-##target_ticker = ticker_input.upper()
+# ---------------------------------------
+# ✅ 주요 파라미터 입력 (전략 설정값)
+# ---------------------------------------
 
-# target_ticker = st.selectbox('티커 ', ('SOXL','KORU','TQQQ','BITU'))
+# ---------------------------------------
+# 공통 파라미터
+# ---------------------------------------
 
-# # 최초투자금액
-# first_amt = st.number_input("투자금액", value=20000, step=500)
+st.subheader("💹 공통 항목 설정")
 
-# # 표시용 콤마 포맷 (예: 20,0000)
-# st.markdown(f"**입력한 투자금액:** {first_amt:,}")
-
-# start_date = st.date_input("시작일자", value= datetime.today() - timedelta(days=14))
-# end_date = st.date_input("종료일자", value=datetime.today())
-
-# 첫 번째 줄: 티커 선택 + 투자금액 입력
+# 티커 선택 + 투자금액 입력
 col1, col2 = st.columns(2)
 
 with col1:
@@ -522,15 +518,54 @@ with col2:
     first_amt = st.number_input("투자금액", value=20000, step=500)
     st.markdown(f"**입력한 투자금액:** {first_amt:,}")
 
-# 두 번째 줄: 시작일자 + 종료일자
+# 분할수
+div_cnt = st.number_input("분할수", value=7, step=1)
+
+# 시작일자 + 종료일자
 col3, col4 = st.columns(2)
 
 with col3:
-    start_date = st.date_input("시작일자", value=datetime.today() - timedelta(days=14))
+    start_date = st.date_input("투자시작일", value=datetime.today() - timedelta(days=14))
 
 with col4:
-    end_date = st.date_input("종료일자", value=datetime.today())
+    end_date = st.date_input("투자종료일", value=datetime.today())
 
+# 빈 줄 추가
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ---------------------------------------
+# 안전모드 파라미터
+# ---------------------------------------
+st.subheader("💹 안전모드 설정")
+
+safe_hold_days = st.number_input("최대보유일수", value=30, step=1)
+
+col5, col6 = st.columns(2)
+with col5:
+    safe_buy_threshold  = st.number_input("매수조건이율(%)", min_value=0.0, max_value=100.0, value=3.0, step=0.1, format="%.1f") / 100
+
+with col6:
+    safe_sell_threshold = st.number_input("매도조건이율(%)", min_value=0.0, max_value=100.0, value=0.2, step=0.1, format="%.1f") / 100
+
+# 빈 줄 추가
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ---------------------------------------
+# 공세모드 파라미터
+# ---------------------------------------
+st.subheader("💹 공세모드 설정")
+
+aggr_hold_days = st.number_input("최대보유일수", value=7, step=1)
+
+col7, col8 = st.columns(2)
+with col7:
+    aggr_buy_threshold  = st.number_input("매수조건이율(%)", min_value=0.0, max_value=100.0, value=5.0, step=0.1, format="%.1f") / 100
+
+with col8:
+    aggr_sell_threshold = st.number_input("매도조건이율(%)", min_value=0.0, max_value=100.0, value=2.5, step=0.1, format="%.1f") / 100
+
+# 빈 줄 추가
+st.markdown("<br>", unsafe_allow_html=True)
 
 if st.button("▶ 전략 실행"):
     status_placeholder = st.empty()
@@ -548,8 +583,7 @@ if st.button("▶ 전략 실행"):
         st.warning("데이터가 없습니다. 입력 조건을 확인하세요.")
     else:
         status_placeholder.empty()
-        st.success("전략 실행 완료!")
-       
+        st.success("전략 실행 완료!")       
         
         total_buy_qty = df_result["매수량"].fillna(0).sum()
         total_buy_amt = df_result["매수금액"].fillna(0).sum()
@@ -563,7 +597,7 @@ if st.button("▶ 전략 실행"):
         # 보유 매수원가
         holding_cost = total_buy_amt - total_sell_amt
 
-        # 평균 단가
+        # 평균 단가 게산
         if total_qty > 0:
             avg_prc = holding_cost / total_qty
         else:
