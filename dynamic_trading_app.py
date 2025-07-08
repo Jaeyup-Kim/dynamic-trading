@@ -605,41 +605,65 @@ if st.button("▶ 전략 실행"):
 
 
         # 1. 매수/매도 데이터 추출 및 통합
+        # df_result에서 매수 데이터 추출
         buy_data = df_result[["일자", "매수가", "매수량"]].copy()
-        buy_data.columns = ["date", "price", "quantity"]
+        buy_data.columns = ["date", "price", "quantity"]  # 컬럼 이름 통일
 
+        # df_result에서 매도 데이터 추출
         sell_data = df_result[["실제매도일", "실제매도가", "실제매도량"]].copy()
         sell_data.columns = ["date", "price", "quantity"]
 
-        # NaN 값 제거 후 음수 처리
+        # 매도 데이터에서 '실제매도량'이 NaN인 행은 제거 (매도 기록 없는 경우 제외)
         sell_data = sell_data.dropna(subset=["quantity"])
-        sell_data["quantity"] = -sell_data["quantity"]  # 매도는 음수 처리
+
+        # 매도는 보유량을 줄이므로 수량에 음수(-) 부호를 붙임
+        sell_data["quantity"] = -sell_data["quantity"]
 
         # 2. 결합 및 정렬
+        # 매수/매도를 하나의 테이블로 합침
         df = pd.concat([buy_data, sell_data], ignore_index=True)
+
+        # date/price/quantity 중 하나라도 비어있는 행 제거
         df = df.dropna(subset=["date", "price", "quantity"])
+
+        # date를 datetime 형식으로 변환 (정렬 및 비교 위해)
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+        # 날짜순으로 정렬
         df = df.sort_values("date").reset_index(drop=True)
 
-        # 3. 구글시트 방식 평균단가 계산
-        avg_prc = 0
-        history = []
+        # 3. 평균단가 계산
+        avg_prc = 0  # 평균단가 초기화
+        history = []  # (날짜, 평균단가) 기록 리스트
 
+        # 데이터에 포함된 고유 날짜를 순서대로 가져옴
         unique_dates = df["date"].unique()
 
+        # 각 날짜별로 처리
         for date in unique_dates:
+            # 해당 날짜의 모든 거래 추출
             sub = df[df["date"] == date]
+            
+            # 첫 거래의 가격 (날짜별 거래는 모두 동일 가격이라는 가정)
             p = sub["price"].iloc[0]
+            
+            # 해당 날짜의 거래 총수량 (매수는 양수, 매도는 음수)
             q = sub["quantity"].sum()
+            
+            # 이 날짜 이전까지 누적 보유량
             past_qty = df[df["date"] < date]["quantity"].sum()
 
             if avg_prc == 0:
+                # 첫 매수일에는 평균단가 = 매수가
                 avg_prc = p
             elif q < 0:
-                pass  # 매도인 경우: 평균단가 유지
+                # 매도일에는 평균단가 유지 (평단 변동 없음)
+                pass
             else:
-                avg_prc = (avg_prc * past_qty + p * q) / (past_qty + q)  # ← 누락된 재할당
+                # 매수일에는 새 평균단가 계산
+                avg_prc = (avg_prc * past_qty + p * q) / (past_qty + q)
 
+            # 이 날짜의 평균단가를 기록
             history.append((date.date(), round(avg_prc, 4)))
 
         # 4. 출력
@@ -647,7 +671,10 @@ if st.button("▶ 전략 실행"):
         #     print(f"{h[0]} → 평균단가: {h[1]}")
 
         # 5. 최종 결과
+
+        # 현재 보유량 계산 (모든 수량의 합계)
         total_qty = int(df["quantity"].sum())
+
         #print("\n📌 최종 평균단가:", round(avg_prc, 4))
         #print("📌 최종 보유수량:", total_qty)
 
