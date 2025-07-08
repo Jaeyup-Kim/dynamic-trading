@@ -512,23 +512,23 @@ st.subheader("💹 공통 항목 설정")
 col1, col2 = st.columns(2)
 
 with col1:
-    target_ticker = st.selectbox('티커', ('SOXL', 'KORU', 'TQQQ', 'BITU'))
+    target_ticker = st.selectbox('티커 *', ('SOXL', 'KORU', 'TQQQ', 'BITU'))
 
 with col2:
-    first_amt = st.number_input("투자금액", value=20000, step=500)
+    first_amt = st.number_input("투자금액 *", value=20000, step=500)
     st.markdown(f"**입력한 투자금액:** {first_amt:,}")
 
 # 분할수
-div_cnt = st.number_input("분할수", value=7, step=1)
+div_cnt = st.number_input("분할수 *", value=7, step=1)
 
 # 시작일자 + 종료일자
 col3, col4 = st.columns(2)
 
 with col3:
-    start_date = st.date_input("투자시작일", value=datetime.today() - timedelta(days=14))
+    start_date = st.date_input("투자시작일 *", value=datetime.today() - timedelta(days=14))
 
 with col4:
-    end_date = st.date_input("투자종료일", value=datetime.today())
+    end_date = st.date_input("투자종료일 *", value=datetime.today())
 
 # 빈 줄 추가
 st.markdown("<br>", unsafe_allow_html=True)
