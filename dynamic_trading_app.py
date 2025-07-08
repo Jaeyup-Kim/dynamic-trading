@@ -585,23 +585,72 @@ if st.button("▶ 전략 실행"):
         status_placeholder.empty()
         st.success("전략 실행 완료!")       
         
-        total_buy_qty = df_result["매수량"].fillna(0).sum()
-        total_buy_amt = df_result["매수금액"].fillna(0).sum()
+        # total_buy_qty = df_result["매수량"].fillna(0).sum()
+        # total_buy_amt = df_result["매수금액"].fillna(0).sum()
 
-        total_sell_qty = df_result["실제매도량"].fillna(0).sum()
-        total_sell_amt = df_result["실제매도금액"].fillna(0).sum()
+        # total_sell_qty = df_result["실제매도량"].fillna(0).sum()
+        # total_sell_amt = df_result["실제매도금액"].fillna(0).sum()
 
-        # 보유량 계산
-        total_qty = int(total_buy_qty - total_sell_qty)
+        # # 보유량 계산
+        # total_qty = int(total_buy_qty - total_sell_qty)
 
-        # 보유 매수원가
-        holding_cost = total_buy_amt - total_sell_amt
+        # # 보유 매수원가
+        # holding_cost = total_buy_amt - total_sell_amt
 
-        # 평균 단가 게산
-        if total_qty > 0:
-            avg_prc = holding_cost / total_qty
-        else:
-            avg_prc = 0
+        # # 평균 단가 게산
+        # if total_qty > 0:
+        #     avg_prc = holding_cost / total_qty
+        # else:
+        #     avg_prc = 0
+
+
+        # 1. 매수/매도 데이터 추출 및 통합
+        buy_data = df_result[["일자", "매수가", "매수량"]].copy()
+        buy_data.columns = ["date", "price", "quantity"]
+
+        sell_data = df_result[["실제매도일", "실제매도가", "실제매도량"]].copy()
+        sell_data.columns = ["date", "price", "quantity"]
+
+        # NaN 값 제거 후 음수 처리
+        sell_data = sell_data.dropna(subset=["quantity"])
+        sell_data["quantity"] = -sell_data["quantity"]  # 매도는 음수 처리
+
+        # 2. 결합 및 정렬
+        df = pd.concat([buy_data, sell_data], ignore_index=True)
+        df = df.dropna(subset=["date", "price", "quantity"])
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df = df.sort_values("date").reset_index(drop=True)
+
+        # 3. 구글시트 방식 평균단가 계산
+        avg_prc = 0
+        history = []
+
+        unique_dates = df["date"].unique()
+
+        for date in unique_dates:
+            sub = df[df["date"] == date]
+            p = sub["price"].iloc[0]
+            q = sub["quantity"].sum()
+            past_qty = df[df["date"] < date]["quantity"].sum()
+
+            if avg_prc == 0:
+                avg_prc = p
+            elif q < 0:
+                pass  # 매도인 경우: 평균단가 유지
+            else:
+                avg_prc = (avg_prc * past_qty + p * q) / (past_qty + q)  # ← 누락된 재할당
+
+            history.append((date.date(), round(avg_prc, 4)))
+
+        # 4. 출력
+        for h in history:
+            print(f"{h[0]} → 평균단가: {h[1]}")
+
+        # 5. 최종 결과
+        total_qty = int(df["quantity"].sum())
+        #print("\n📌 최종 평균단가:", round(avg_prc, 4))
+        #print("📌 최종 보유수량:", total_qty)
+
 
         # ✅ 누적 매매손익
         total_profit = df_result.dropna(subset=["실제매도금액", "매수금액"]).apply(
