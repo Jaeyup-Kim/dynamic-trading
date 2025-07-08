@@ -643,8 +643,8 @@ if st.button("▶ 전략 실행"):
             history.append((date.date(), round(avg_prc, 4)))
 
         # 4. 출력
-        for h in history:
-            print(f"{h[0]} → 평균단가: {h[1]}")
+        # for h in history:
+        #     print(f"{h[0]} → 평균단가: {h[1]}")
 
         # 5. 최종 결과
         total_qty = int(df["quantity"].sum())
