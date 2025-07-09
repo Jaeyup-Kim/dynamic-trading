@@ -6,6 +6,7 @@ import pandas_market_calendars as mcal
 from collections import namedtuple
 import numpy as np
 import FinanceDataReader as fdr
+import io
 
 ### ---------------------------------------
 # ✅ RSI 계산 함수
@@ -745,9 +746,23 @@ if st.button("▶ 전략 실행"):
 
         st.dataframe(styled_df)
 
-        csv = df_result.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+#        csv = df_result.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
 
-        st.download_button("⬇️ CSV 다운로드", csv, "strategy_result.csv", "text/csv")
+#        st.download_button("⬇️ CSV 다운로드", csv, "strategy_result.csv", "text/csv")
+
+        # 엑셀 데이터 바이너리로 변환
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+            df_result.to_excel(writer, sheet_name="매매리스트", index=False)
+        excel_data = output.getvalue()
+
+        # 다운로드 버튼
+        st.download_button(
+            label="⬇️ 엑셀 다운로드",
+            data=excel_data,
+            file_name="strategy_result.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
     # 퉁치기 대상 주문 추출
     sell_orders, buy_orders = extract_orders(df_result)
