@@ -515,7 +515,7 @@ with col1:
     target_ticker = st.selectbox('티커 *', ('SOXL', 'KORU', 'TQQQ', 'BITU'))
 
 with col2:
-    first_amt = st.number_input("투자금액 *", value=20000, step=500)
+    first_amt = st.number_input("투자금액(USD) *", value=20000, step=500)
     st.markdown(f"**입력한 투자금액:** {first_amt:,}")
 
 # 분할수
