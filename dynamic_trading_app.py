@@ -526,7 +526,7 @@ div_cnt = st.number_input("분할수 *", value=7, step=1)
 col3, col4 = st.columns(2)
 
 with col3:
-    start_date = st.date_input("투자시작일 *", value=datetime.today() - timedelta(days=14))
+    start_date = st.date_input("투자시작일 *", value=datetime.today() - timedelta(days=21))
 
 with col4:
     end_date = st.date_input("투자종료일 *", value=datetime.today())
