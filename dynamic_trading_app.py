@@ -563,7 +563,7 @@ with col7:
     aggr_buy_threshold  = st.number_input("매수조건이율(%)", min_value=0.0, max_value=100.0, value=3.6, step=0.1, format="%.1f") / 100
 
 with col8:
-    aggr_sell_threshold = st.number_input("매도조건이율(%)", min_value=0.0, max_value=100.0, value=3.5, step=0.1, format="%.1f") / 100
+    aggr_sell_threshold = st.number_input("매도조건이율(%)", min_value=0.0, max_value=100.0, value=5.6, step=0.1, format="%.1f") / 100
 
 # 빈 줄 추가
 st.markdown("<br>", unsafe_allow_html=True)
@@ -785,4 +785,5 @@ if st.button("▶ 전략 실행"):
                 ) 
     st.dataframe(styled_df, use_container_width=True)
     
+
 
