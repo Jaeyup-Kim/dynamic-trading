@@ -516,7 +516,7 @@ with col1:
     target_ticker = st.selectbox('티커 *', ('SOXL', 'KORU', 'TQQQ', 'BITU'))
 
 with col2:
-    first_amt = st.number_input("투자금액(USD) *", value=20000, step=500)
+    first_amt = st.number_input("투자금액(USD) *", value=25000, step=500)
     st.markdown(f"**입력한 투자금액:** {first_amt:,}")
 
 # 분할수
@@ -526,7 +526,7 @@ div_cnt = st.number_input("분할수 *", value=7, step=1)
 col3, col4 = st.columns(2)
 
 with col3:
-    start_date = st.date_input("투자시작일 *", value=datetime.today() - timedelta(days=21))
+    start_date = st.date_input("투자시작일 *", value=datetime.today() - timedelta(days=14))
 
 with col4:
     end_date = st.date_input("투자종료일 *", value=datetime.today())
@@ -539,14 +539,14 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ---------------------------------------
 st.subheader("💹 안전모드 설정")
 
-safe_hold_days = st.number_input("최대보유일수", value=35, step=1)
+safe_hold_days = st.number_input("최대보유일수", value=30, step=1)
 
 col5, col6 = st.columns(2)
 with col5:
-    safe_buy_threshold  = st.number_input("매수조건이율(%)", min_value=0.0, max_value=100.0, value=3.5, step=0.1, format="%.1f") / 100
+    safe_buy_threshold  = st.number_input("매수조건이율(%)", min_value=0.0, max_value=100.0, value=3.0, step=0.1, format="%.1f") / 100
 
 with col6:
-    safe_sell_threshold = st.number_input("매도조건이율(%)", min_value=0.0, max_value=100.0, value=1.8, step=0.1, format="%.1f") / 100
+    safe_sell_threshold = st.number_input("매도조건이율(%)", min_value=0.0, max_value=100.0, value=0.2, step=0.1, format="%.1f") / 100
 
 # 빈 줄 추가
 st.markdown("<br>", unsafe_allow_html=True)
@@ -560,10 +560,10 @@ aggr_hold_days = st.number_input("최대보유일수", value=7, step=1)
 
 col7, col8 = st.columns(2)
 with col7:
-    aggr_buy_threshold  = st.number_input("매수조건이율(%)", min_value=0.0, max_value=100.0, value=3.6, step=0.1, format="%.1f") / 100
+    aggr_buy_threshold  = st.number_input("매수조건이율(%)", min_value=0.0, max_value=100.0, value=5.0, step=0.1, format="%.1f") / 100
 
 with col8:
-    aggr_sell_threshold = st.number_input("매도조건이율(%)", min_value=0.0, max_value=100.0, value=5.6, step=0.1, format="%.1f") / 100
+    aggr_sell_threshold = st.number_input("매도조건이율(%)", min_value=0.0, max_value=100.0, value=2.5, step=0.1, format="%.1f") / 100
 
 # 빈 줄 추가
 st.markdown("<br>", unsafe_allow_html=True)
@@ -785,5 +785,6 @@ if st.button("▶ 전략 실행"):
                 ) 
     st.dataframe(styled_df, use_container_width=True)
     
+
 
 
