@@ -759,8 +759,8 @@ if st.button("▶ 전략 실행"):
 
     # NaN 및 None 값을 빈 문자열로 대체하여 출력
     #printable_df = df_result.where(pd.notnull(df_result), "")
-    printable_df = df_result.replace({None: np.nan})
-    #$printable_df = df_result.replace({None: np.nan}, downcast=False)
+    pd.set_option('future.no_silent_downcasting', True)
+    printable_df = df_result.replace({None: np.nan})        
     printable_df = printable_df.astype(str).replace({"None": "", "nan": ""})
 
     if printable_df.empty:
@@ -974,3 +974,4 @@ if st.button("▶ 전략 실행"):
                 ) 
     st.dataframe(styled_df, use_container_width=True)
     
+
