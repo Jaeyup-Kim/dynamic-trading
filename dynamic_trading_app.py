@@ -45,7 +45,8 @@ def get_week_num(date):
 
 # 투자금 갱신 설정
 # 복리 투자를 위해 필요하나 이 프로그램에서는 아직 반영하지 않았음
-PRFT_CMPND_INT_RT = 0.8            # 이익복리율
+# 투자금갱신주기마다 일투자금액에 손실을 반영해서 투자하기 위함
+PRFT_CMPND_INT_RT = 0.8            # 이익복리율   
 LOSS_CMPND_INT_RT = 0.3            # 손실복리율
 INVT_RENWL_CYLE   = 10             # 투자금갱신주기
 
@@ -181,100 +182,94 @@ def extract_orders(df):
 
     return sell_orders, buy_orders
 
+def calc_balance(row, prev_balance, sell_list):
+    if not row.get("종가"):
+        return None
+
+    # 매수금액이 아닌 매수예정 기준으로 차감
+    planned_buy = row.get("매수예정", 0) or 0
+    trade_day = row.get("일자")
+
+    today_sell_profit = sum(
+        s.get("실제매도금액", 0)
+        for s in sell_list
+        if s.get("실제매도일") == trade_day
+    )
+
+    return round(prev_balance - planned_buy + today_sell_profit, 2)
+
+
+# def calc_day_sell_profit(trade_day, sell_list):
+#     return sum(
+#         s.get("실제매도금액", 0) or 0
+#         for s in sell_list
+#         if s.get("실제매도일") == trade_day
+#     )
+
+
 # ---------------------------------------
 # ✅ RSI 매매 전략 실행
 # ---------------------------------------
 # ---------- 매매 전략 실행 ----------
-def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
-    """
-    입력된 기간 동안의 전략 모드(안전/공세)와 매매 목표가/실제 체결 내역을 계산
+def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, day_cnt):
+    acum_prft_amt = 0.0
+    v_first_amt = first_amt
+    result = []
 
-    Parameters:
-        start_date (str): 시작일 (예: '2025-06-01')
-        end_date (str): 종료일 (예: '2025-06-20')
+    # --- 날짜 및 RSI 모드 계산 ---
+    start_dt, end_dt = pd.to_datetime(start_date), pd.to_datetime(end_date)
+    qqq_start = start_dt - pd.Timedelta(weeks=20)
 
-    Returns:
-        pd.DataFrame: 날짜별 매매 전략, 매수/매도 목표가, 체결가, 체결 수량 등 포함된 결과표
-    """    
-
-    daily_buy_amount = round(first_amt / div_cnt, 2)  # 1회 매수에 사용할 금액
-
-    # 날짜 전처리
-    start_dt = pd.to_datetime(start_date)
-    end_dt = pd.to_datetime(end_date)
-    qqq_start = start_dt - pd.Timedelta(weeks=20)  # RSI 계산을 위한 20주치 데이터 필요
-
-    # 거래일 계산 (미국장 기준)
-    nyse = mcal.get_calendar("NYSE") #NYSE  XNYS
-    all_days = nyse.schedule(
+    nyse = mcal.get_calendar("NYSE")
+    market_days = nyse.schedule(
         start_date=qqq_start.strftime("%Y-%m-%d"),
         end_date=(end_dt + pd.Timedelta(days=safe_hold_days + 10)).strftime("%Y-%m-%d")
-    )
-    market_days = all_days.index.normalize()
+    ).index.normalize()
 
-    # QQQ 데이터 FDR로 가져오기
     qqq = fdr.DataReader("QQQ", qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
     qqq.index = pd.to_datetime(qqq.index)
-
-    # 종료일자가 데이터에 없으면 추가
     if end_dt not in qqq.index:
-        # 종료일자의 모드를 구하기 위해 QQQ 데이터가 없더라도 종료 일자는 추가
         qqq.loc[end_dt] = None
 
-    # 각 주차별로 가장 마지막 거래일 데이터를 추출 (주간 RSI 계산용)
     weekly = get_last_trading_day_each_week(qqq)
-
-    # RSI(상대강도지수)를 주어진 기간 기준으로 계산    
     weekly_rsi = calculate_rsi_rolling(weekly).dropna(subset=["RSI"])
+    weekly_rsi["모드"] = assign_mode_v2(weekly_rsi["RSI"])
+    weekly_rsi["year"] = weekly_rsi.index.year
+    weekly_rsi["week"] = weekly_rsi.index.map(get_weeknum_google_style)
+    mode_by_year_week = weekly_rsi.set_index(["year", "week"])[["모드", "RSI"]]
 
-    weekly_rsi['모드'] = assign_mode_v2(weekly_rsi['RSI'])
-    weekly_rsi['year'] = weekly_rsi.index.to_series().dt.year
-    weekly_rsi['week'] = weekly_rsi.index.to_series().apply(get_weeknum_google_style)
-    weekly_rsi['rsi_date'] = weekly_rsi.index.date
-
-    mode_by_year_week = weekly_rsi.set_index(['year', 'week'])[['모드', 'RSI', 'rsi_date']]
-
-    # 입력받은 티커의 데이터 FDR로 가져오기
     ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
     ticker_data.index = pd.to_datetime(ticker_data.index)
 
-    result = []
-
-    # 각 거래일마다 전략 수립    
+    # --- 매매 전략 수행 ---
     for day in market_days:
-        if day < start_dt or day > end_dt:
+        if not (start_dt <= day <= end_dt):
             continue
 
-        # 해당 날짜의 연도 및 주차 정보로 모드(RSI 기반) 조회
-        year = day.year
-        week = get_weeknum_google_style(day)
+        # # 10일마다 자본 업데이트
+        # if day_cnt >= 10 and day_cnt % 10 == 0:
+        #     v_first_amt += acum_prft_amt * 0.8
 
+        daily_buy_amount = round(v_first_amt / div_cnt, 2)
+
+        year, week = day.year, get_weeknum_google_style(day)
         if (year, week) not in mode_by_year_week.index:
             continue
 
+        mode_info = mode_by_year_week.loc[(year, week)]
+        mode = mode_info["모드"]
+        rsi = round(mode_info["RSI"], 2)
 
-        row = mode_by_year_week.loc[(year, week)]
-        mode = row['모드']
-        rsi = round(row['RSI'], 2) if pd.notnull(row['RSI']) else None
-        rsi_date = row['rsi_date']
-
-        # 전일 종가 조회
         prev_days = ticker_data.index[ticker_data.index < day]
         if len(prev_days) == 0:
             continue
-        
-        prev_close = round(ticker_data.loc[prev_days[-1], 'Close'], 2)
+        prev_close = round(ticker_data.loc[prev_days[-1], "Close"], 2)
 
-        # 해당일 종가 (체결 여부 판단용)
-        actual_close = ticker_data.loc[day, 'Close'] if day in ticker_data.index else None
-        if pd.isna(actual_close):
-            actual_close = None
-        if actual_close is not None:
+        actual_close = ticker_data.loc[day, "Close"] if day in ticker_data.index else None
+        if pd.notna(actual_close):
             actual_close = round(actual_close, 2)
+        today_close = actual_close
 
-        today_close = actual_close #  당일 종가 화면 출력용
-
-        # 모드에 따라 목표가 및 보유일 설정
         if mode == "안전":
             target_price = round(prev_close * (1 + safe_buy_threshold), 2)
             sell_target_price = round((actual_close or target_price) * (1 + safe_sell_threshold), 2)
@@ -284,90 +279,276 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt):
             sell_target_price = round((actual_close or target_price) * (1 + aggr_sell_threshold), 2)
             holding_days = aggr_hold_days
 
-        # 목표 수량 계산
-        target_qty = int(daily_buy_amount // target_price)
-        actual_qty = int(daily_buy_amount // target_price) if actual_close else None
-        buy_amt = round(actual_qty * actual_close, 2) if actual_qty and actual_close else None
+        # --- 매수 수량/금액: 한 번만 계산해서 '진실의 원천'으로 사용 ---
+        target_qty = int(daily_buy_amount // target_price) if target_price else 0
 
-        # MOC 매도일 = 보유기간 후 첫 거래일
+        buy_qty = 0
+        buy_amt = None
         moc_sell_date = get_future_market_day(day, market_days, holding_days)
 
-        # 초기화: 실제 매도 관련 정보
-        actual_sell_date = None
-        actual_sell_price = None
-        actual_sell_qty = None
-        actual_sell_amount = None
+        actual_sell_date = actual_sell_price = actual_sell_qty = actual_sell_amount = prft_amt = None
         order_type = ""
 
-        # 실제 체결 가능한 경우 (매수 목표가 ≥ 종가)
-        if actual_close and target_price >= actual_close:
-            # 보유 기간 내 종가가 매도 목표가를 넘긴 경우 매도 성사            
+        # 매수 조건 성립 + 목표량>0 인 경우에만 매수/청산 로직 진입
+        if actual_close and target_price >= actual_close and target_qty > 0:
+            buy_qty = target_qty
+            buy_amt = round(buy_qty * actual_close, 2)
+
+            # --- 청산 탐색: 이 'buy_qty' 만큼만 매도 ---
             hold_range = market_days[(market_days >= day)][:holding_days]
             future_prices = ticker_data.loc[ticker_data.index.isin(hold_range)]
+            match = future_prices[future_prices["Close"] >= sell_target_price]
 
-            match = future_prices[future_prices['Close'] >= sell_target_price]
             if not match.empty:
                 actual_sell_date = match.index[0].date()
-                actual_sell_price = round(match.iloc[0]['Close'], 2)
+                actual_sell_price = round(match.iloc[0]["Close"], 2)
             elif moc_sell_date and pd.Timestamp(moc_sell_date) in ticker_data.index:
-                # 조건 달성 실패 시 MOC 매도                
                 actual_sell_date = moc_sell_date
-                actual_sell_price = round(ticker_data.loc[pd.Timestamp(moc_sell_date)]['Close'], 2)
+                actual_sell_price = round(ticker_data.loc[pd.Timestamp(moc_sell_date)]["Close"], 2)
 
             if actual_sell_price:
-                actual_sell_qty = actual_qty
+                actual_sell_qty = buy_qty                 # ← 매수 수량과 동일
                 actual_sell_amount = round(actual_sell_price * actual_sell_qty, 2)
+                prft_amt = round((actual_sell_amount or 0) - (buy_amt or 0), 2)
 
-            if not actual_sell_date:
-                # 당일이 MOC 매도일이라면 MOC로 판별                         
-                if moc_sell_date == end_dt.date():
-                    order_type = "MOC"
-                else:
-                    order_type = "LOC"
-            else:
-                #  MOC 매도일과 살제매도일이 같으면 MOC
-                if moc_sell_date == actual_sell_date:
-                    order_type = "MOC"
-                else:               	                    	
-                    order_type = "LOC"  
+            if actual_sell_date:
+                order_type = "MOC" if actual_sell_date == moc_sell_date else "LOC"
+            elif moc_sell_date == end_dt.date():
+                order_type = "MOC"
 
-        # 매수 미체결 시: 관련 값 모두 초기화
-        elif actual_close is not None and target_price < actual_close:
+        else:
+            # 당일 미체결(매수 없음)
             actual_close = None
-            actual_qty = None
-            buy_amt = None
             sell_target_price = None
             moc_sell_date = None
-            actual_sell_date = None
-            actual_sell_price = None
-            actual_sell_qty = None
-            actual_sell_amount = None
-            order_type = ""
+            prft_amt = 0.0
 
-        # 결과 누적
+        acum_prft_amt += prft_amt or 0.0
+
         result.append({
             "일자": day.date(),
-            "모드": mode,
-            #"RSI일자": rsi_date,
-            #"RSI": rsi,
             "종가": today_close,
-            "변동률": round((today_close - prev_close) / prev_close * 100, 2)
-            if isinstance(today_close, (int, float)) and prev_close else np.nan,            
-            "매수예정": daily_buy_amount,
+            "모드": mode,
+            "변동률": round((today_close - prev_close) / prev_close * 100, 2) if today_close and prev_close else np.nan,
+            "매수예정": None,
             "LOC매수목표": target_price,
-            "목표량": target_qty,
+            "목표량": target_qty if target_qty > 0 else None,
             "매수가": actual_close,
-            "매수량": actual_qty, 
+            "매수량": buy_qty if buy_qty > 0 else None,
             "매수금액": buy_amt,
+            "매수수수료": None,            
             "매도목표가": sell_target_price,
             "MOC매도일": moc_sell_date,
             "실제매도일": actual_sell_date,
             "실제매도가": actual_sell_price,
-            "실제매도량": actual_sell_qty,
+            "실제매도량": None,
             "실제매도금액": actual_sell_amount,
-            "매매손익": round(actual_sell_amount - buy_amt, 2) if actual_sell_amount else None,
+            "매도수수료": None,            
+            "당일실현": None,                        
+            "매매손익": None,
+            "누적매매손익": None,
+            "복리금액": None,
+            "자금갱신": None,            
+            "예수금": None,                        
             "주문유형": order_type
         })
+
+        day_cnt += 1
+ 
+
+    # --- 후처리 ---
+    # 1. 1차 루프: 매수예정, 매수량, 매수금액, 실제매도금액, 매매손익, 누적매매손익, 예수금 계산
+    prev_pmt_update = first_amt
+    prev_cash = first_amt
+    prev_profit_sum = 0
+        
+    for i, row in enumerate(result):
+        ### 1. 복리 반영 자금갱신 (1차 루프에서는 미반영)
+        자금갱신 = prev_pmt_update
+        row["자금갱신"] = round(자금갱신, 2)
+        prev_pmt_update = 자금갱신
+
+        ### 2. 매수예정 (직전 자금갱신 기준)
+        if i == 0:
+            base_amt = round(first_amt / div_cnt, 2)
+        else:
+            prev_row = result[i - 1]
+            prev_update = prev_row.get("자금갱신", 0)
+            base_amt = round(prev_update / div_cnt, 2)
+
+        매수예정 = min(base_amt, prev_cash) if prev_cash is not None else None
+        row["매수예정"] = 매수예정
+
+        ### 3. 목표량 / 매수량 / 매수금액
+        tgt_price = row.get("LOC매수목표")
+        buy_price = row.get("매수가")
+        sell_price = row.get("실제매도가", 0) or 0
+
+        if 매수예정 and tgt_price:
+            qty = int(매수예정 // tgt_price)
+        else:
+            qty = None
+
+        row["목표량"] = qty
+        row["매수량"] = qty
+        # ✅ 매수금액을 먼저 계산
+        row["매수금액"] = round(qty * buy_price, 2) if qty and buy_price else None
+
+        # ✅ 매수금액이 확정된 후, 실제매도량과 실제매도금액 계산
+        if qty and buy_price:
+            row["실제매도량"] = qty
+            
+            if sell_price:
+                row["실제매도금액"] = round(row["실제매도량"] * sell_price, 2)
+                # ✅ 실제매도금액이 확정된 후 매매손익 계산
+                row["매매손익"] = round(row["실제매도금액"] - row["매수금액"], 2)
+            else:
+                row["실제매도금액"] = None
+                row["매매손익"] = None
+        else:
+            row["실제매도량"] = None
+            row["실제매도금액"] = None
+            row["매매손익"] = None
+
+        if row["매매손익"] is not None:
+            prev_profit_sum += row["매매손익"]
+        row["누적매매손익"] = round(prev_profit_sum, 2)
+
+        ### 4. 예수금 = 이전 예수금 - 매수금액 + 당일 매도금액
+        buy_amt = row.get("매수금액", 0) or 0
+        trade_day = row.get("일자")
+        sell_amt = sum(
+            s.get("실제매도금액", 0) or 0
+            for s in result if s.get("실제매도일") == trade_day
+        )
+        예수금 = round(prev_cash - buy_amt + sell_amt, 2) if prev_cash is not None else None
+        row["예수금"] = 예수금
+        prev_cash = 예수금
+    
+    # 2. 2차 루프: 매매손익이 확정된 후 당일실현 및 복리금액 계산
+    for i, row in enumerate(result):
+        day = row["일자"]
+        row["당일실현"] = round(sum((r.get("매매손익") or 0) for r in result if r.get("실제매도일") == day), 2) or None
+        
+        if (i + 1) % INVT_RENWL_CYLE == 0:
+            bfs = sum((r.get("당일실현") or 0) for r in result[max(0, i - INVT_RENWL_CYLE + 1):i + 1])
+            rate = PRFT_CMPND_INT_RT if bfs > 0 else LOSS_CMPND_INT_RT
+            row["복리금액"] = round(bfs * rate, 2)
+        else:
+            row["복리금액"] = None
+
+    # 3. 3차 루프: 복리금액을 자금갱신에 반영하고 나머지 항목 재계산
+    prev_pmt_update = first_amt
+    prev_cash = first_amt
+    prev_profit_sum = 0
+        
+    # 3차 루프에서도 당일실현을 다시 계산해야 하므로, 당일실현을 계산하는 로직을 추가합니다.
+    daily_realized_profits = {}
+        
+    for i, row in enumerate(result):
+        ### 1. 복리 반영 자금갱신
+        복리금액 = row.get("복리금액", 0) or 0
+        자금갱신 = prev_pmt_update + 복리금액 if 복리금액 is not None else prev_pmt_update
+        row["자금갱신"] = round(자금갱신, 2)
+        prev_pmt_update = 자금갱신
+
+        ### 2. 매수예정 (직전 자금갱신 기준)
+        if i == 0:
+            base_amt = round(first_amt / div_cnt, 2)
+        else:
+            prev_row = result[i - 1]
+            prev_update = prev_row.get("자금갱신", 0)
+            base_amt = round(prev_update / div_cnt, 2)
+
+        매수예정 = min(base_amt, prev_cash) if prev_cash is not None else None
+        row["매수예정"] = 매수예정
+
+        ### 3. 목표량 / 매수량 / 매수금액
+        tgt_price = row.get("LOC매수목표")
+        buy_price = row.get("매수가")
+        sell_price = row.get("실제매도가")
+        
+        if 매수예정 and tgt_price:
+            qty = int(매수예정 // tgt_price)
+        else:
+            qty = None
+        
+        row["목표량"] = qty
+        # ✅ 수정된 부분: 매수가가 있을 경우에만 매수량을 계산하고 할당
+        if buy_price is not None:
+            if qty:
+                row["매수량"] = qty
+                row["매수금액"] = round(qty * buy_price, 2)
+            else:
+                row["매수량"] = None
+                row["매수금액"] = None
+        else:
+            row["매수량"] = None
+            row["매수금액"] = None
+
+        # ✅ 매수량 재계산 후 관련 항목 업데이트
+        if sell_price is not None:
+            if qty:
+                row["실제매도량"] = qty
+                row["실제매도금액"] = round(row["실제매도량"] * sell_price, 2)
+                row["매매손익"] = round(row["실제매도금액"] - (row["매수금액"] or 0), 2)
+            else:
+                row["실제매도량"] = None
+                row["실제매도금액"] = None
+                row["매매손익"] = None
+        else:
+            row["실제매도량"] = None
+            row["실제매도금액"] = None
+            row["매매손익"] = None
+
+        ### 4. 누적매매손익
+        if row.get("매매손익") is not None:
+            prev_profit_sum += row["매매손익"]
+        row["누적매매손익"] = round(prev_profit_sum, 2)
+
+        ### 5. 예수금 = 이전 예수금 - 매수금액 + 당일 매도금액
+        buy_amt = row.get("매수금액", 0) or 0
+        trade_day = row.get("일자")
+        sell_amt = sum(
+            s.get("실제매도금액", 0) or 0
+            for s in result if s.get("실제매도일") == trade_day
+        )
+        예수금 = round(prev_cash - buy_amt + sell_amt, 2) if prev_cash is not None else None
+        row["예수금"] = 예수금
+        prev_cash = 예수금
+
+    prev_pmt_update = first_amt        
+    # ✅ 3차 루프가 완료된 후 당일실현을 최종적으로 재계산
+    for i, row in enumerate(result):
+        day = row["일자"]
+        if day not in daily_realized_profits:
+            daily_realized_profits[day] = sum((r.get("매매손익") or 0) for r in result if r.get("실제매도일") == day)
+            
+        row["당일실현"] = round(daily_realized_profits[day], 2) or None
+
+        # 복리금액 최종 계산
+        if (i + 1) % INVT_RENWL_CYLE == 0:
+            bfs = sum((r.get("당일실현") or 0) for r in result[max(0, i - INVT_RENWL_CYLE + 1):i + 1])
+            rate = PRFT_CMPND_INT_RT if bfs > 0 else LOSS_CMPND_INT_RT
+            row["복리금액"] = round(bfs * rate, 2)
+        else:
+            row["복리금액"] = None
+
+        복리금액 = row.get("복리금액", 0) or 0
+        자금갱신 = prev_pmt_update + 복리금액 if 복리금액 is not None else prev_pmt_update
+        row["자금갱신"] = round(자금갱신, 2)
+        prev_pmt_update = 자금갱신
+
+        ### 매수예정
+        if i == 0:
+            base_amt = round(first_amt / div_cnt, 2)
+        else:
+            prev_row = result[i - 1]
+            prev_update = prev_row.get("자금갱신", 0)
+            base_amt = round(prev_update / div_cnt, 2)
+
+        매수예정 = min(base_amt, prev_cash) if prev_cash is not None else None
+        row["매수예정"] = 매수예정
 
     return pd.DataFrame(result)
 
@@ -502,6 +683,8 @@ st.title("📈 RSI 동적 매매")
 # ---------------------------------------
 # ✅ 주요 파라미터 입력 (전략 설정값)
 # ---------------------------------------
+day_cnt = 0 
+acum_prft_amt = 0
 
 # ---------------------------------------
 # 공통 파라미터
@@ -516,7 +699,7 @@ with col1:
     target_ticker = st.selectbox('티커 *', ('SOXL', 'KORU', 'TQQQ', 'BITU'))
 
 with col2:
-    first_amt = st.number_input("투자금액(USD) *", value=25000, step=500)
+    first_amt = st.number_input("투자금액(USD) *", value=24000, step=500)
     st.markdown(f"**입력한 투자금액:** {first_amt:,}")
 
 # 분할수
@@ -526,7 +709,7 @@ div_cnt = st.number_input("분할수 *", value=7, step=1)
 col3, col4 = st.columns(2)
 
 with col3:
-    start_date = st.date_input("투자시작일 *", value=datetime.today() - timedelta(days=14))
+    start_date = st.date_input("투자시작일 *", value=datetime.today() - timedelta(days=20))
 
 with col4:
     end_date = st.date_input("투자종료일 *", value=datetime.today())
@@ -572,11 +755,12 @@ if st.button("▶ 전략 실행"):
     status_placeholder = st.empty()
     status_placeholder.info("전략 실행 중입니다...")
 
-    df_result = get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt)
+    df_result = get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, day_cnt)
 
     # NaN 및 None 값을 빈 문자열로 대체하여 출력
     #printable_df = df_result.where(pd.notnull(df_result), "")
     printable_df = df_result.replace({None: np.nan})
+    #$printable_df = df_result.replace({None: np.nan}, downcast=False)
     printable_df = printable_df.astype(str).replace({"None": "", "nan": ""})
 
     if printable_df.empty:
@@ -737,7 +921,12 @@ if st.button("▶ 전략 실행"):
             "실제매도가": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
             "실제매도량": lambda x: "{:.0f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
             "실제매도금액": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
+            "당일실현": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",                                                            
             "매매손익": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
+            "누적매매손익": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",            
+            "복리금액": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",                                                
+            "자금갱신": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",                                    
+            "예수금": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",                        
         })
 
         # 빈 줄 추가( 간격 띄우기 위함 )
@@ -785,6 +974,3 @@ if st.button("▶ 전략 실행"):
                 ) 
     st.dataframe(styled_df, use_container_width=True)
     
-
-
-
