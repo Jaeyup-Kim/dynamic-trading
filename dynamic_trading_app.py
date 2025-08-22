@@ -523,7 +523,7 @@ def remove_duplicates(sell_orders, buy_orders):
 
     filtered_sell_orders.sort(key=lambda x: x.price)
 
-    # LOC 매도 주문 퉁치기
+    # LOC 매도 주문 상계처리
     for sell_order in filtered_sell_orders:
         if buy_order.quantity == 0:
             new_sell_orders.append(sell_order)
@@ -552,7 +552,7 @@ def remove_duplicates(sell_orders, buy_orders):
     sell_orders[:] = new_sell_orders
     buy_orders[:] = new_buy_orders
 
-# ----- 퉁치기 표 색상 지정
+# ----- 당일주문 리스트색상 지정
 def highlight_order(row):
     if row["매매유형"] == "매도":
         return ['background-color: #D9EFFF'] * len(row)  # 하늘색
