@@ -310,10 +310,10 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
                 actual_sell_date = moc_sell_date
                 actual_sell_price = round(ticker_data.loc[pd.Timestamp(moc_sell_date)]["Close"], 2)
 
-            if actual_sell_price:
-                actual_sell_qty = buy_qty                 # ← 매수 수량과 동일
-                actual_sell_amount = round(actual_sell_price * actual_sell_qty, 2)
-                prft_amt = round((actual_sell_amount or 0) - (buy_amt or 0), 2)
+            # if actual_sell_price:
+            #     actual_sell_qty = buy_qty                 # ← 매수 수량과 동일
+            #     actual_sell_amount = round(actual_sell_price * actual_sell_qty, 2)
+            #     prft_amt = round((actual_sell_amount or 0) - (buy_amt or 0), 2)
 
             #print("---- actual_sell_date, moc_sell_date : ", actual_sell_date, moc_sell_date)
             # if actual_sell_date:
@@ -348,18 +348,18 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
             "변동률": round((today_close - prev_close) / prev_close * 100, 2) if today_close and prev_close else np.nan,
             "매수예정": None,
             "LOC매수목표": target_price,
-            "목표량": target_qty if target_qty > 0 else None,
+            "목표량": None,
             "매수가": actual_close,
-            "매수량": buy_qty if buy_qty > 0 else None,
-            "매수금액": buy_amt,
-            "매수수수료": None,            
+            "매수량": None,
+            "매수금액": None,
+           # "매수수수료": None,            
             "매도목표가": sell_target_price,
             "MOC매도일": moc_sell_date,
             "실제매도일": actual_sell_date,
             "실제매도가": actual_sell_price,
             "실제매도량": None,
-            "실제매도금액": actual_sell_amount,
-            "매도수수료": None,            
+            "실제매도금액": None,
+           # "매도수수료": None,            
             "당일실현": None,                        
             "매매손익": None,
             "누적매매손익": None,
@@ -861,4 +861,3 @@ if st.button("▶ 전략 실행"):
                 ) 
     st.dataframe(styled_df, use_container_width=True)
     
-
