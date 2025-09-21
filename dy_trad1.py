@@ -510,7 +510,7 @@ if st.sidebar.button("사용자 이름 저장"):
 # ✅ 사용자 선택 드롭다운
 # ---------------------------------------
 st.subheader("👨‍💻 사용자 선택")
-if 'selected_user_name' not in st.session_state:
+if 'selected_user_name' not in st.session_state or st.session_state.selected_user_name not in user_names:
     st.session_state.selected_user_name = user_names[0]
 
 selected_user = st.selectbox("사용자 이름", user_names, index=user_names.index(st.session_state.selected_user_name))
