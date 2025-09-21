@@ -7,6 +7,31 @@ from collections import namedtuple
 import numpy as np
 import FinanceDataReader as fdr
 import io
+import json
+
+# 파일 경로 정의
+PARAMS_FILE = 'params.json'
+
+### ---------------------------------------
+# ✅ 파라미터 저장/불러오기 함수
+### ---------------------------------------
+def load_params():
+    try:
+        with open(PARAMS_FILE, 'r') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        # 파일이 없거나 형식이 잘못된 경우 초기값 반환
+        return {
+            "style_option": "Default",
+            "target_ticker": "SOXL",
+            "first_amt": 24000,
+            "start_date": (datetime.today() - timedelta(days=21)).strftime('%Y-%m-%d'),
+            "end_date": datetime.today().strftime('%Y-%m-%d')
+        }
+
+def save_params(params):
+    with open(PARAMS_FILE, 'w') as f:
+        json.dump(params, f, indent=4)
 
 ### ---------------------------------------
 # ✅ RSI 계산 함수
@@ -25,24 +50,20 @@ def calculate_rsi(data, window=14):
 # ✅ 주간 RSI용 주차 계산 함수
 # ---------------------------------------
 def get_week_num(date):
-    return int(date.strftime("%Y%U"))  # %U: 주차 (일요일 시작)
+    return int(date.strftime("%Y%U"))
 
 # ---------------------------------------
 # ✅ 주요 파라미터 (전략 설정값)
 # ---------------------------------------
 
 # 투자금 갱신 설정
-INVT_RENWL_CYLE   = 10  # 투자금갱신주기
+INVT_RENWL_CYLE = 10
 
 # 주문 정보 구조 정의
 Order = namedtuple('Order', ['side', 'type', 'price', 'quantity'])
 
 # ---------- 유틸 함수들 ----------
 def get_weeknum_google_style(date):
-    """
-    Google Calendar 스타일의 주차(Week Number) 계산
-    기준: 1월 1일부터 시작, 요일 보정 포함
-    """    
     jan1 = pd.Timestamp(year=date.year, month=1, day=1).tz_localize(None)
     date = pd.Timestamp(date).tz_localize(None)
     weekday_jan1 = jan1.weekday()
@@ -50,9 +71,6 @@ def get_weeknum_google_style(date):
     return ((delta_days + weekday_jan1) // 7) + 1
 
 def get_last_trading_day_each_week(data):
-    """
-    각 주차별로 가장 마지막 거래일 데이터를 추출 (주간 RSI 계산용)
-    """    
     data = data.copy()
     data['week'] = data.index.to_series().apply(get_weeknum_google_style)
     data['year'] = data.index.to_series().dt.year
@@ -61,10 +79,6 @@ def get_last_trading_day_each_week(data):
     return data.loc[last_day['weekday']]
 
 def calculate_rsi_rolling(data, period=14):
-    """
-    RSI(상대강도지수)를 주어진 기간 기준으로 계산
-    기본: 14일
-    """    
     data = data.copy()
     data['delta'] = data['Close'].diff()
     data['gain'] = data['delta'].where(data['delta'] > 0, 0.0)
@@ -73,30 +87,23 @@ def calculate_rsi_rolling(data, period=14):
     data['avg_loss'] = data['loss'].rolling(window=period).mean()
     data['RS'] = (data['avg_gain'] / data['avg_loss']).round(3)
     data['RSI'] = ((data['RS'] / (1 + data['RS'])) * 100).round(2)
-    
     return data
 
 def assign_mode_v2(rsi_series):
-    """
-    RSI 흐름을 기반으로 안전/공세 모드를 판별
-    2주 전과 1주 전 RSI 값을 비교
-    """    
     mode_list = []
     for i in range(len(rsi_series)):
         if i < 2:
-            mode_list.append("안전") # 초기에는 무조건 안전모드
+            mode_list.append("안전")
             continue
         two_weeks_ago = rsi_series.iloc[i - 2]
         one_week_ago = rsi_series.iloc[i - 1]
 
-        # 안전 조건        
         if (
             (two_weeks_ago > 65 and two_weeks_ago > one_week_ago) or
             (40 < two_weeks_ago < 50 and two_weeks_ago > one_week_ago) or
             (one_week_ago < 50 and 50 < two_weeks_ago)
         ):
             mode = "안전"
-        # 공세 조건            
         elif (
             (two_weeks_ago < 35 and two_weeks_ago < one_week_ago) or
             (50 < two_weeks_ago < 60 and two_weeks_ago < one_week_ago) or
@@ -104,40 +111,29 @@ def assign_mode_v2(rsi_series):
         ):
             mode = "공세"
         else:
-            mode = mode_list[i - 1]  # 이전 모드를 유지
+            mode = mode_list[i - 1]
         mode_list.append(mode)
     return mode_list
 
 def get_future_market_day(start_day, market_days, offset_days):
-    """
-    기준일로부터 N일 후의 거래일 반환
-    예: MOC 매도를 위한 MOC매도일자 계산
-    """    
     market_days = market_days[market_days > start_day]
-
     if len(market_days) < offset_days:
         return None
-    
     return market_days[offset_days - 1].date()
 
 # ---------- 주문 추출 ----------
 def extract_orders(df):
-    """
-    DataFrame에서 매수/매도 대상 주문 추출
-    - 매도: 목표가 존재하고 아직 매도되지 않은 건
-    - 매수: 마지막 날 LOC 매수 목표가 존재하는 경우
-    """    
     sell_orders = []
     buy_orders = []
 
     for _, row in df.iterrows():
-        if pd.notna(row['매도목표가']) and row['매도목표가'] > 0 and pd.isna(row['실제매도일']) and row['주문유형'] != "MOC":            
+        if pd.notna(row['매도목표가']) and row['매도목표가'] > 0 and pd.isna(row['실제매도일']) and row['주문유형'] != "MOC":
             price = round(row['매도목표가'], 2)
             qty = int(row['매수량']) if pd.notna(row['매수량']) else 0
             if qty > 0:
                 sell_orders.append(Order("매도", "LOC", price, qty))
 
-        elif pd.isna(row['실제매도일']) and pd.notna(row['MOC매도일']) and row['주문유형'] == "MOC":                        
+        elif pd.isna(row['실제매도일']) and pd.notna(row['MOC매도일']) and row['주문유형'] == "MOC":
             price = round(row['매도목표가'], 2)
             qty = int(row['매수량']) if pd.notna(row['매수량']) else 0
             if qty > 0:
@@ -174,12 +170,11 @@ def calc_balance(row, prev_balance, sell_list):
 # ---------------------------------------
 # ✅ RSI 매매 전략 실행
 # ---------------------------------------
-def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, day_cnt, safe_hold_days, safe_buy_threshold, safe_sell_threshold, aggr_hold_days, aggr_buy_threshold, aggr_sell_threshold, safe_div_cnt, aggr_div_cnt, prft_cmpnd_int_rt, loss_cmpnd_int_rt):
+def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, day_cnt, safe_hold_days, safe_buy_threshold, safe_sell_threshold, aggr_hold_days, aggr_buy_threshold, aggr_sell_threshold, aggr_div_cnt, prft_cmpnd_int_rt, loss_cmpnd_int_rt):
 
     v_first_amt = first_amt
     result = []
 
-    # --- 날짜 및 RSI 모드 계산 ---
     start_dt, end_dt = pd.to_datetime(start_date), pd.to_datetime(end_date)
     qqq_start = start_dt - pd.Timedelta(weeks=20)
 
@@ -204,7 +199,6 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
     ticker_data.index = pd.to_datetime(ticker_data.index)
 
-    # --- 매매 전략 수행 ---
     for day in market_days:
         if not (start_dt <= day <= end_dt):
             continue
@@ -294,12 +288,12 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
             "실제매도가": actual_sell_price,
             "실제매도량": None,
             "실제매도금액": None,
-            "당일실현": None,                         
+            "당일실현": None,
             "매매손익": None,
             "누적매매손익": None,
             "복리금액": None,
-            "자금갱신": None,            
-            "예수금": None,                         
+            "자금갱신": None,
+            "예수금": None,
             "주문유형": order_type
         })
 
@@ -341,7 +335,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         trade_day = row["일자"]
         sell_amt = sum(r.get("실제매도금액") or 0 for r in result if r["실제매도일"] == trade_day)
         prev_cash = prev_cash - buy_amt + sell_amt
-        row["예수금"] = prev_cash if row["종가"] else None 
+        row["예수금"] = prev_cash if row["종가"] else None
 
         if trade_day not in daily_realized_profits:
             daily_realized_profits[trade_day] = sum((r.get("매매손익") or 0) for r in result if r.get("실제매도일") == trade_day)
@@ -362,9 +356,6 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
 
 # ----------상계 처리 표 출력 ----------
 def print_table(orders):
-    """
-    주문 리스트를 DataFrame으로 변환
-    """
     df = pd.DataFrame([{
         "매매유형": order.side,
         "주문유형": order.type,
@@ -374,13 +365,7 @@ def print_table(orders):
 
     return df
 
-#-- 매도/매수 주문내역 출력
 def print_orders(sell_orders, buy_orders):
-    """
-    매도/매수 주문을 구분 출력
-    - 매도는 가격 내림차순
-    - 매수는 가격 오름차순
-    """    
     print("\n---[매도 주문]")
     print(f"{'Side':<10}{'Type':<10}{'Price':<10}{'Quantity':<10}")
     print("-" * 40)
@@ -393,15 +378,7 @@ def print_orders(sell_orders, buy_orders):
     for order in sorted(buy_orders, key=lambda x: x.price):
         print(f"{order.side:<10}{order.type:<10}{order.price:<10.2f}{order.quantity:<10}")
 
-# ----------------------------------------------
-#  상계 처리 로직                                -
-# ----------------------------------------------
 def remove_duplicates(sell_orders, buy_orders):
-    """
-    LOC/MOC 주문을 기준으로 매수/매도 간 가격 정산 및 충돌 제거
-    - 매도 주문은 가격 내림차순, 매수 주문은 오름차순 정렬
-    - LOC 매수 가격보다 낮은 매도 주문은 상계 처리 후보
-    """    
     if not sell_orders or not buy_orders:
         return
 
@@ -471,24 +448,23 @@ def remove_duplicates(sell_orders, buy_orders):
     sell_orders[:] = new_sell_orders
     buy_orders[:] = new_buy_orders
 
-# ----- 당일주문 리스트색상 지정
 def highlight_order(row):
     if row["매매유형"] == "매도":
-        return ['background-color: #D9EFFF'] * len(row)  # 하늘색
+        return ['background-color: #D9EFFF'] * len(row)
     elif row["매매유형"] == "매수":
-        return ['background-color: #FFE6E6'] * len(row)  # 분홍색
+        return ['background-color: #FFE6E6'] * len(row)
     else:
         return [''] * len(row)
     
 # ---------------------------------------
 # ✅ Streamlit UI
 # ---------------------------------------
-st.title("📈 RSI 변동성 매매(파라메타 고정)")
+st.title("📈 RSI 변동성 매매")
 
 # ---------------------------------------
-# ✅ 주요 파라미터 입력 (전략 설정값)
+# ✅ 파라미터 로드
 # ---------------------------------------
-day_cnt = 0 
+params = load_params()
 
 # ---------------------------------------
 # 스타일 설정 사전
@@ -525,31 +501,52 @@ styles = {
 # ---------------------------------------
 st.subheader("💹 공통 항목 설정")
 
-style_option = st.selectbox("스타일 선택", list(styles.keys()))
+# 📝 스타일 선택
+style_option = st.selectbox("스타일 선택", list(styles.keys()), index=list(styles.keys()).index(params["style_option"]))
 selected_style = styles[style_option]
+if style_option != params["style_option"]:
+    params["style_option"] = style_option
+    save_params(params)
 
 col1, col2 = st.columns(2)
 
 with col1:
-    target_ticker = st.selectbox('티커 *', ('SOXL', 'KORU', 'TQQQ', 'BITU'))
+    # 📝 티커 선택
+    tickers = ('SOXL', 'KORU', 'TQQQ', 'BITU')
+    target_ticker = st.selectbox('티커 *', tickers, index=tickers.index(params["target_ticker"]))
+    if target_ticker != params["target_ticker"]:
+        params["target_ticker"] = target_ticker
+        save_params(params)
 
 with col2:
-    first_amt = st.number_input("투자금액(USD) *", value=24000, step=500)
+    # 📝 투자금액 입력
+    first_amt = st.number_input("투자금액(USD) *", value=params["first_amt"], step=500)
+    if first_amt != params["first_amt"]:
+        params["first_amt"] = first_amt
+        save_params(params)
     st.markdown(f"**입력한 투자금액:** {first_amt:,}")
 
 # 시작일자 + 종료일자
 col3, col4 = st.columns(2)
 
 with col3:
-    start_date = st.date_input("투자시작일 *", value=datetime.today() - timedelta(days=21))
+    # 📝 투자 시작일 입력
+    start_date = st.date_input("투자시작일 *", value=datetime.strptime(params["start_date"], '%Y-%m-%d').date())
+    if start_date.strftime('%Y-%m-%d') != params["start_date"]:
+        params["start_date"] = start_date.strftime('%Y-%m-%d')
+        save_params(params)
 
 with col4:
-    end_date = st.date_input("투자종료일 *", value=datetime.today())
+    # 📝 투자 종료일 입력
+    end_date = st.date_input("투자종료일 *", value=datetime.strptime(params["end_date"], '%Y-%m-%d').date())
+    if end_date.strftime('%Y-%m-%d') != params["end_date"]:
+        params["end_date"] = end_date.strftime('%Y-%m-%d')
+        save_params(params)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ---------------------------------------
-# 안전모드 파라미터 (선택된 스타일에 따라 표시)
+# 안전모드 파라미터
 # ---------------------------------------
 st.subheader("💹 안전모드 설정")
 safe_hold_days = selected_style["safe_hold_days"]
@@ -557,12 +554,8 @@ safe_buy_threshold = selected_style["safe_buy_threshold"] / 100
 safe_sell_threshold = selected_style["safe_sell_threshold"] / 100
 safe_div_cnt = selected_style["safe_div_cnt"]
 
-col50, col60 = st.columns(2)
-with col50:
-    st.markdown(f"**최대보유일수:** {safe_hold_days}일")
-
-with col60:    
-    st.markdown(f"**분할수:** {safe_div_cnt}회")
+st.markdown(f"**최대보유일수:** {safe_hold_days}일")
+st.markdown(f"**분할수:** {safe_div_cnt}회")
 
 col5, col6 = st.columns(2)
 with col5:
@@ -574,7 +567,7 @@ with col6:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ---------------------------------------
-# 공세모드 파라미터 (선택된 스타일에 따라 표시)
+# 공세모드 파라미터
 # ---------------------------------------
 st.subheader("💹 공세모드 설정")
 aggr_hold_days = selected_style["aggr_hold_days"]
@@ -582,12 +575,8 @@ aggr_buy_threshold = selected_style["aggr_buy_threshold"] / 100
 aggr_sell_threshold = selected_style["aggr_sell_threshold"] / 100
 aggr_div_cnt = selected_style["aggr_div_cnt"]
 
-col70, col80 = st.columns(2)
-with col70:
-    st.markdown(f"**최대보유일수:** {aggr_hold_days}일")
-
-with col80:
-    st.markdown(f"**분할수:** {aggr_div_cnt}회")
+st.markdown(f"**최대보유일수:** {aggr_hold_days}일")
+st.markdown(f"**분할수:** {aggr_div_cnt}회")
 
 col7, col8 = st.columns(2)
 with col7:
@@ -605,10 +594,10 @@ if st.button("▶ 전략 실행"):
     prft_cmpnd_int_rt = selected_style["prft_cmpnd_int_rt"]
     loss_cmpnd_int_rt = selected_style["loss_cmpnd_int_rt"]
 
-    df_result = get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, day_cnt, safe_hold_days, safe_buy_threshold, safe_sell_threshold, aggr_hold_days, aggr_buy_threshold, aggr_sell_threshold, safe_div_cnt, aggr_div_cnt, prft_cmpnd_int_rt, loss_cmpnd_int_rt)
+    df_result = get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, 0, safe_hold_days, safe_buy_threshold, safe_sell_threshold, aggr_hold_days, aggr_buy_threshold, aggr_sell_threshold, aggr_div_cnt, prft_cmpnd_int_rt, loss_cmpnd_int_rt)
 
     pd.set_option('future.no_silent_downcasting', True)
-    printable_df = df_result.replace({None: np.nan})    
+    printable_df = df_result.replace({None: np.nan})
     printable_df = printable_df.astype(str).replace({"None": "", "nan": ""})
 
     if printable_df.empty:
@@ -616,7 +605,7 @@ if st.button("▶ 전략 실행"):
         st.warning("데이터가 없습니다. 입력 조건을 확인하세요.")
     else:
         status_placeholder.empty()
-        st.success("전략 실행 완료!")      
+        st.success("전략 실행 완료!")
 
         buy_data = df_result[["일자", "매수가", "매수량"]].copy()
         buy_data.columns = ["date", "price", "quantity"]
@@ -687,12 +676,12 @@ if st.button("▶ 전략 실행"):
             "실제매도가": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
             "실제매도량": lambda x: "{:.0f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
             "실제매도금액": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
-            "당일실현": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",                                       
+            "당일실현": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
             "매매손익": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
-            "누적매매손익": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",            
-            "복리금액": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",                     
-            "자금갱신": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",                         
-            "예수금": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",                         
+            "누적매매손익": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
+            "복리금액": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
+            "자금갱신": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
+            "예수금": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
         })
 
         st.markdown("<br>", unsafe_allow_html=True)
@@ -726,4 +715,4 @@ if st.button("▶ 전략 실행"):
                      .apply(highlight_order, axis=1).format({"주문가": "{:.2f}"})
                 ) 
     st.dataframe(styled_df, use_container_width=True)
-
+    
