@@ -10,14 +10,36 @@ import io
 import json
 
 # 파일 경로 정의
-PARAMS_FILE = 'params.json'
+CONFIG_FILE = 'config.json'
 
 ### ---------------------------------------
-# ✅ 파라미터 저장/불러오기 함수
+# ✅ 설정 및 파라미터 저장/불러오기 함수
 ### ---------------------------------------
-def load_params():
+def load_config():
+    """사용자 이름과 같은 전역 설정을 불러옵니다."""
     try:
-        with open(PARAMS_FILE, 'r') as f:
+        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        # 파일이 없거나 형식이 잘못된 경우 초기값 반환
+        return {
+            "user_names": [f"사용자{i+1}" for i in range(6)]
+        }
+
+def save_config(config):
+    """사용자 이름과 같은 전역 설정을 저장합니다."""
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(config, f, indent=4, ensure_ascii=False)
+
+def get_params_file(user):
+    """사용자 이름에 따라 파라미터 파일 경로를 반환합니다."""
+    return f'params_{user}.json'
+
+def load_params(user):
+    """특정 사용자의 파라미터를 불러옵니다."""
+    file_path = get_params_file(user)
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         # 파일이 없거나 형식이 잘못된 경우 초기값 반환
@@ -29,9 +51,11 @@ def load_params():
             "end_date": datetime.today().strftime('%Y-%m-%d')
         }
 
-def save_params(params):
-    with open(PARAMS_FILE, 'w') as f:
-        json.dump(params, f, indent=4)
+def save_params(params, user):
+    """특정 사용자의 파라미터를 저장합니다."""
+    file_path = get_params_file(user)
+    with open(file_path, 'w', encoding='utf-8') as f:
+        json.dump(params, f, indent=4, ensure_ascii=False)
 
 ### ---------------------------------------
 # ✅ RSI 계산 함수
@@ -462,9 +486,41 @@ def highlight_order(row):
 st.title("📈 RSI 변동성 매매")
 
 # ---------------------------------------
-# ✅ 파라미터 로드
+# ✅ 설정 로드 (사용자 이름)
 # ---------------------------------------
-params = load_params()
+config = load_config()
+user_names = config["user_names"]
+
+# ---------------------------------------
+# ✅ 사이드바에 사용자 이름 관리 섹션 추가
+# ---------------------------------------
+st.sidebar.subheader("👨‍💻 사용자 이름 관리")
+new_user_names = []
+for i, name in enumerate(user_names):
+    new_name = st.sidebar.text_input(f"사용자 {i+1} 이름", value=name)
+    new_user_names.append(new_name)
+
+if st.sidebar.button("사용자 이름 저장"):
+    config["user_names"] = new_user_names
+    save_config(config)
+    st.sidebar.success("사용자 이름이 저장되었습니다!")
+    st.rerun()
+
+# ---------------------------------------
+# ✅ 사용자 선택 드롭다운
+# ---------------------------------------
+st.subheader("👨‍💻 사용자 선택")
+if 'selected_user_name' not in st.session_state:
+    st.session_state.selected_user_name = user_names[0]
+
+selected_user = st.selectbox("사용자 이름", user_names, index=user_names.index(st.session_state.selected_user_name))
+
+if selected_user != st.session_state.selected_user_name:
+    st.session_state.selected_user_name = selected_user
+    st.rerun()
+
+# 선택된 사용자의 파라미터 로드
+params = load_params(st.session_state.selected_user_name)
 
 # ---------------------------------------
 # 스타일 설정 사전
@@ -506,7 +562,7 @@ style_option = st.selectbox("스타일 선택", list(styles.keys()), index=list(
 selected_style = styles[style_option]
 if style_option != params["style_option"]:
     params["style_option"] = style_option
-    save_params(params)
+    save_params(params, st.session_state.selected_user_name)
 
 col1, col2 = st.columns(2)
 
@@ -516,14 +572,14 @@ with col1:
     target_ticker = st.selectbox('티커 *', tickers, index=tickers.index(params["target_ticker"]))
     if target_ticker != params["target_ticker"]:
         params["target_ticker"] = target_ticker
-        save_params(params)
+        save_params(params, st.session_state.selected_user_name)
 
 with col2:
     # 📝 투자금액 입력
     first_amt = st.number_input("투자금액(USD) *", value=params["first_amt"], step=500)
     if first_amt != params["first_amt"]:
         params["first_amt"] = first_amt
-        save_params(params)
+        save_params(params, st.session_state.selected_user_name)
     st.markdown(f"**입력한 투자금액:** {first_amt:,}")
 
 # 시작일자 + 종료일자
@@ -534,14 +590,15 @@ with col3:
     start_date = st.date_input("투자시작일 *", value=datetime.strptime(params["start_date"], '%Y-%m-%d').date())
     if start_date.strftime('%Y-%m-%d') != params["start_date"]:
         params["start_date"] = start_date.strftime('%Y-%m-%d')
-        save_params(params)
+        save_params(params, st.session_state.selected_user_name)
 
 with col4:
     # 📝 투자 종료일 입력
     end_date = st.date_input("투자종료일 *", value=datetime.strptime(params["end_date"], '%Y-%m-%d').date())
-    if end_date.strftime('%Y-%m-%d') != params["end_date"]:
-        params["end_date"] = end_date.strftime('%Y-%m-%d')
-        save_params(params)
+    # ⛔️ 수정된 부분: 아래 두 줄을 삭제 또는 주석 처리하여 투자 종료일이 저장되지 않도록 함
+    # if end_date.strftime('%Y-%m-%d') != params["end_date"]:
+    #     params["end_date"] = end_date.strftime('%Y-%m-%d')
+    #     save_params(params, st.session_state.selected_user_name)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
