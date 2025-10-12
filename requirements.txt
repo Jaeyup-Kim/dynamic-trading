@@ -7,3 +7,5 @@ timedelta
 numpy
 finance-datareader
 XlsxWriter
+gspread
+oauth2client
