@@ -5,5 +5,6 @@ pandas_market_calendars
 datetime
 namedtuple
 timedelta
+gspread
 oauth2client
 finance-datareader
