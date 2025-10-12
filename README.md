@@ -5,3 +5,5 @@ pandas_market_calendars
 datetime
 namedtuple
 timedelta
+gspread
+finance-datareader
