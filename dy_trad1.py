@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import gspread # Google Sheets 연동 라이브러리
+import json
 import yfinance as yf
 from datetime import datetime, timedelta
 import pandas_market_calendars as mcal
@@ -7,55 +9,236 @@ from collections import namedtuple
 import numpy as np
 import FinanceDataReader as fdr
 import io
-import json
+import time
 
-# 파일 경로 정의
-CONFIG_FILE = 'config.json'
-
-### ---------------------------------------
-# ✅ 설정 및 파라미터 저장/불러오기 함수
-### ---------------------------------------
-def load_config():
-    """사용자 이름과 같은 전역 설정을 불러옵니다."""
+# --- 고유 식별자 설정 ---
+# 시트의 행을 검색하는 기준이 되는 고유 키 컬럼 이름입니다.
+ID_COLUMN_NAME = 'UserID' 
+# ---------------------------------------
+# ✅ Google Sheets 클라이언트 및 워크시트 초기화
+# ---------------------------------------
+@st.cache_resource(ttl=3600) # 1시간 동안 연결 정보 캐시
+def get_sheets_client():
+    """Secrets에서 Google 서비스 계정 정보를 로드하여 GSheets 클라이언트를 반환합니다."""
+    # Secrets의 JSON 문자열을 딕셔너리로 변환
     try:
-        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        # 파일이 없거나 형식이 잘못된 경우 초기값 반환
-        return {
-            "user_names": [f"사용자{i+1}" for i in range(6)]
-        }
+        creds_json = st.secrets["google_service_account_key"]
+        if isinstance(creds_json, str):
+            creds_dict = json.loads(creds_json)
+        else:
+            creds_dict = creds_json
+        
+        # GSheets 클라이언트 초기화
+        client = gspread.service_account_from_dict(creds_dict)
+        return client
+    except Exception as e:
+        st.error("Google Sheets 연결 설정(st.secrets) 오류: google_service_account_key를 확인하세요.")
+        st.stop()
+        
+client = get_sheets_client()
+url = st.secrets.get("google_sheet_url")
 
-def save_config(config):
-    """사용자 이름과 같은 전역 설정을 저장합니다."""
-    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-        json.dump(config, f, indent=4, ensure_ascii=False)
+if not url:
+    st.error("Google Sheet URL이 Secrets에 설정되지 않았습니다. 'google_sheet_url'을 확인하세요.")
+    st.stop()
 
-def get_params_file(user):
-    """사용자 이름에 따라 파라미터 파일 경로를 반환합니다."""
-    return f'params_{user}.json'
-
-def load_params(user):
-    """특정 사용자의 파라미터를 불러옵니다."""
-    file_path = get_params_file(user)
+@st.cache_resource(ttl=3600)
+def get_spreadsheet(_client, url):
+    """스프레드시트 객체를 한 번만 열고 캐시합니다. (클라이언트 인수는 해시에서 제외)"""
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        # 파일이 없거나 형식이 잘못된 경우 초기값 반환
-        return {
-            "style_option": "Default",
-            "target_ticker": "SOXL",
-            "first_amt": 24000,
-            "start_date": (datetime.today() - timedelta(days=21)).strftime('%Y-%m-%d'),
-            "end_date": datetime.today().strftime('%Y-%m-%d')
-        }
+        return _client.open_by_url(url)
+    except Exception as e:
+        st.error(f"Google Sheets 접근 중 오류 발생 (URL 확인 필요): {e}")
+        st.stop()
 
-def save_params(params, user):
-    """특정 사용자의 파라미터를 저장합니다."""
-    file_path = get_params_file(user)
-    with open(file_path, 'w', encoding='utf-8') as f:
-        json.dump(params, f, indent=4, ensure_ascii=False)
+workbook = get_spreadsheet(client, url)
+
+def get_worksheet(sheet_name):
+    """지정된 워크시트 이름을 사용하여 워크시트 객체를 반환합니다."""
+    try:
+        # 이미 캐시된 workbook 객체를 사용합니다.
+        worksheet = workbook.worksheet(sheet_name)
+        return worksheet
+    except gspread.WorksheetNotFound:
+        st.error(f"Google Sheet에 '{sheet_name}' 워크시트가 없습니다. 워크시트를 만들어 주세요.")
+        st.stop()
+    except Exception as e:
+        st.error(f"Google Sheets 접근 중 오류 발생 (워크시트: {sheet_name}): {e}")
+        st.stop()
+
+# ---------------------------------------
+# ✅ 하드코딩된 기본값 및 유틸리티 함수
+# ---------------------------------------
+
+# 시트와 무관하게 사용할 기본 파라미터 정의
+HARDCODED_DEFAULTS = {
+    "style_option": 'Default',
+    "target_ticker": 'TQQQ',
+    "first_amt": 1000,
+    "start_date": '2020-01-01',
+}
+
+def get_hardcoded_default_params():
+    """시트와 무관하게 코드에 하드코딩된 기본 파라미터를 반환합니다."""
+    # 현재 날짜를 end_date 기본값으로 설정
+    defaults = HARDCODED_DEFAULTS.copy()
+    defaults["end_date"] = datetime.now().strftime('%Y-%m-%d')
+    return defaults
+
+# ---------------------------------------
+# ✅ 설정 및 파라미터 저장/불러오기 함수 (Google Sheets 기반으로 변경됨)
+# ---------------------------------------
+def load_user_mappings_from_config(workbook):
+    """
+    Google Sheets의 'Config' 워크시트에서 'UserID'와 'UserName' 매핑 리스트를 불러옵니다.
+    :param workbook: gspread.Spreadsheet 객체
+    :return: UserID와 UserName이 매핑된 딕셔너리 리스트
+    """
+    if not workbook:
+        st.error("스프레드시트 객체가 초기화되지 않았습니다. Config 시트를 로드할 수 없습니다.")
+        return []
+
+    try:
+        # 1. 'Config' 워크시트 객체 가져오기
+        config_ws = workbook.worksheet("Config")
+        
+        # 2. 모든 데이터 읽기
+        data = config_ws.get_all_values()
+        
+        user_mappings = []
+        is_user_table = False
+        
+        # 3. 데이터 파싱
+        for row in data:
+            # 헤더 행 찾기 ('UserID'와 'UserName'이 A, B열에 있는지 확인)
+            if len(row) >= 2 and row[0].strip() == ID_COLUMN_NAME and row[1].strip() == 'UserName':
+                is_user_table = True
+                continue # 헤더 행은 건너뛰고 다음 행부터 데이터로 처리
+            
+            # 사용자 데이터 테이블 영역 처리
+            if is_user_table:
+                # 첫 열(UserID)이 비어있으면 데이터 테이블 끝으로 간주하고 종료
+                if not row or not row[0].strip():
+                    if not row[0].strip() and not row[1].strip():
+                        break
+                    continue
+
+                # UserID와 UserName 매핑
+                user_id = row[0].strip()
+                # B열이 없거나 비어있으면 UserID를 UserName으로 사용
+                user_name = row[1].strip() if len(row) > 1 and row[1].strip() else user_id
+                
+                user_mappings.append({
+                    ID_COLUMN_NAME: user_id,
+                    'UserName': user_name
+                })
+
+        if not user_mappings:
+            st.warning("Config 시트에서 'UserID'와 'UserName' 테이블을 찾지 못했거나 데이터가 비어 있습니다. 기본값('default')을 사용합니다.")
+            # 데이터가 없을 경우 기본 사용자 ID를 반환
+            return [{ID_COLUMN_NAME: "default", "UserName": "기본 사용자"}]
+            
+        return user_mappings
+
+    except Exception as e:
+        st.error(f"Config 시트 사용자 목록 로드 중 오류 발생: {e}. 기본값('default')을 사용합니다.")
+        return [{ID_COLUMN_NAME: "default", "UserName": "기본 사용자"}]
+
+
+
+def load_params(display_name, unique_id):
+    """Google Sheets에서 특정 사용자의 파라미터를 불러옵니다. 없으면 하드코딩된 기본값을 반환합니다."""
+    user_params_ws = get_worksheet("UserParams")
+    
+    # 기본값 가져오기 (사용자 데이터가 없을 경우 반환할 값)
+    default_params = get_hardcoded_default_params()
+
+    try:
+        data = user_params_ws.get_all_records()
+        df = pd.DataFrame(data)
+    except Exception as e:
+        st.warning(f"'UserParams' 시트 데이터 로드 중 오류 발생: {e}. 하드코딩된 기본값 사용.")
+        return default_params
+
+    
+    # 1. 고유 ID(UserID)를 기준으로 해당 사용자의 데이터가 있는지 확인
+    # Sheets에서는 ID_COLUMN_NAME을 'UserID'로 사용하고 있습니다.
+    user_row = df[df[ID_COLUMN_NAME] == unique_id]
+    
+    if not user_row.empty:
+        # 사용자 데이터가 존재하는 경우
+        params_data = user_row.iloc[0]
+        # 데이터가 있으면 해당 사용자의 파라미터를 반환
+        return {
+            "style_option": str(params_data.get('style_option', default_params['style_option'])),
+            "target_ticker": str(params_data.get('target_ticker', default_params['target_ticker'])),
+            # 값이 없을 경우 기본값 사용 (int() 변환 시 오류 방지)
+            "first_amt": int(params_data.get('first_amt', default_params['first_amt'])),
+            "start_date": str(params_data.get('start_date', default_params['start_date'])),
+            # end_date는 시트에서 값을 가져오지 않고 현재 날짜(default_params에서 가져옴)를 기본값으로 사용
+            "end_date": default_params['end_date']
+        }
+    else:
+        # 2. 사용자 데이터가 없으면 하드코딩된 기본값을 반환 (시트 접근 없음)
+        st.info(f"사용자 '{display_name}' ({unique_id})의 파라미터가 시트에 없습니다. 기본 설정으로 시작합니다.")
+        return default_params    
+
+def save_params_robust(params, unique_id, display_name):
+    """파라미터를 Google Sheets의 'UserParams'에 고유 ID(UserID)를 기준으로 저장하거나 업데이트합니다."""
+    try:
+        # 1. 시트 연결 및 데이터 준비
+        user_params_ws = get_worksheet("UserParams")
+        
+        # 시트 헤더를 가져와서 업데이트할 값의 순서를 맞춥니다.
+        headers = user_params_ws.row_values(1)
+        
+        # 고유 ID 컬럼의 위치를 찾습니다.
+        if ID_COLUMN_NAME not in headers:
+            raise ValueError(f"시트 헤더에 필수 컬럼 '{ID_COLUMN_NAME}'을(를) 찾을 수 없습니다.")
+        
+        # 저장할 데이터 딕셔너리 준비 (UserID와 User(이름) 모두 포함)
+        data_to_save = {
+            ID_COLUMN_NAME: unique_id,           # 🔑 고유 ID (검색 키)
+            'UserName': display_name,            # 📝 변경 가능한 사용자 이름
+            'style_option': params.get('style_option', ''),
+            'target_ticker': params.get('target_ticker', ''),
+            'first_amt': params.get('first_amt', ''),
+            'start_date': params.get('start_date', ''),
+            'end_date': '' # end_date는 저장하지 않음
+        }
+        
+        # 데이터 목록 준비 (시트 헤더 순서에 맞춤)
+        row_values = [data_to_save.get(h, '') for h in headers] 
+
+        # 2. 고유 ID를 기반으로 행 찾기 (Upsert 로직 시작)
+        id_column_index = headers.index(ID_COLUMN_NAME) + 1 # gspread는 1-based 인덱스 사용
+        
+        # 'UserID' 열의 모든 값을 가져옵니다. (효율적인 검색)
+        id_column_values = user_params_ws.col_values(id_column_index)
+        
+        try:
+            # id_column_values[1:] : 헤더 제외한 실제 데이터만 검색
+            id_data_list = id_column_values[1:] 
+            
+            # 고유 ID가 존재하는지 확인합니다.
+            unique_id_index_in_data = id_data_list.index(unique_id)
+            
+            # 실제 시트의 행 번호 (1-based, 헤더 1행 + 데이터 시작 1행 + 인덱스 값)
+            row_num = unique_id_index_in_data + 2 
+            
+            # 3. 갱신 (Update)
+            # A{row_num} 셀부터 시작하여 row_values의 길이만큼 행을 업데이트합니다.
+            update_range = f'A{row_num}'
+            user_params_ws.update(range_name=update_range, values=[row_values])
+            st.toast(f"✅ 파라미터가 Google Sheets에 업데이트되었습니다. (ID: {unique_id}, 행: {row_num})")
+            
+        except ValueError:
+            # 4. 추가 (Insert): 리스트에 해당 고유 ID가 없는 경우 (ValueError 발생)
+            user_params_ws.append_row(row_values)
+            st.toast(f"✅ 새 파라미터가 Google Sheets에 저장되었습니다. (ID: {unique_id}, 이름: {display_name})")
+            
+    except Exception as e:
+        st.error(f"Google Sheets 저장 중 오류 발생: {e}")
 
 ### ---------------------------------------
 # ✅ RSI 계산 함수
@@ -79,10 +262,8 @@ def get_week_num(date):
 # ---------------------------------------
 # ✅ 주요 파라미터 (전략 설정값)
 # ---------------------------------------
-
 # 투자금 갱신 설정
 INVT_RENWL_CYLE = 10
-
 # 주문 정보 구조 정의
 Order = namedtuple('Order', ['side', 'type', 'price', 'quantity'])
 
@@ -190,11 +371,11 @@ def calc_balance(row, prev_balance, sell_list):
     )
 
     return round(prev_balance - planned_buy + today_sell_profit, 2)
-
 # ---------------------------------------
 # ✅ RSI 매매 전략 실행
 # ---------------------------------------
-def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, day_cnt, safe_hold_days, safe_buy_threshold, safe_sell_threshold, aggr_hold_days, aggr_buy_threshold, aggr_sell_threshold, aggr_div_cnt, prft_cmpnd_int_rt, loss_cmpnd_int_rt):
+@st.cache_data(show_spinner=False)
+def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, day_cnt, safe_hold_days, safe_buy_threshold, safe_sell_threshold, safe_div_cnt, aggr_hold_days, aggr_buy_threshold, aggr_sell_threshold, aggr_div_cnt, prft_cmpnd_int_rt, loss_cmpnd_int_rt):
 
     v_first_amt = first_amt
     result = []
@@ -208,6 +389,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         end_date=(end_dt + pd.Timedelta(days=safe_hold_days + 60)).strftime("%Y-%m-%d")
     ).index.normalize()
     
+    # QQQ 데이터 로드
     qqq = fdr.DataReader("QQQ", qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
     qqq.index = pd.to_datetime(qqq.index)
     if end_dt not in qqq.index:
@@ -220,6 +402,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     weekly_rsi["week"] = weekly_rsi.index.map(get_weeknum_google_style)
     mode_by_year_week = weekly_rsi.set_index(["year", "week"])[["모드", "RSI"]]
 
+    # 타겟 티커 데이터 로드
     ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
     ticker_data.index = pd.to_datetime(ticker_data.index)
 
@@ -320,7 +503,6 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
             "예수금": None,
             "주문유형": order_type
         })
-
         day_cnt += 1
 
     prev_cash = prev_pmt_update = first_amt
@@ -375,8 +557,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         prev_pmt_update += row["복리금액"] or 0
         row["자금갱신"] = prev_pmt_update
 
-    return pd.DataFrame(result)
-    
+    return pd.DataFrame(result)   
 
 # ----------상계 처리 표 출력 ----------
 def print_table(orders):
@@ -390,24 +571,14 @@ def print_table(orders):
     return df
 
 def print_orders(sell_orders, buy_orders):
-    print("\n---[매도 주문]")
-    print(f"{'Side':<10}{'Type':<10}{'Price':<10}{'Quantity':<10}")
-    print("-" * 40)
-    for order in sorted(sell_orders, key=lambda x: x.price, reverse=True):
-        print(f"{order.side:<10}{order.type:<10}{order.price:<10.2f}{order.quantity:<10}")
-
-    print("\n---[매수 주문]")
-    print(f"{'Side':<10}{'Type':<10}{'Price':<10}{'Quantity':<10}")
-    print("-" * 40)
-    for order in sorted(buy_orders, key=lambda x: x.price):
-        print(f"{order.side:<10}{order.type:<10}{order.price:<10.2f}{order.quantity:<10}")
+    # 이 함수는 콘솔 디버깅용이므로 출력 생략
+    pass
 
 def remove_duplicates(sell_orders, buy_orders):
     if not sell_orders or not buy_orders:
         return
 
     buy_order = buy_orders[0]
-
     filtered_sell_orders = []
     new_sell_orders = []
     new_buy_orders = []
@@ -478,49 +649,67 @@ def highlight_order(row):
     elif row["매매유형"] == "매수":
         return ['background-color: #FFE6E6'] * len(row)
     else:
-        return [''] * len(row)
-    
+        return [''] * len(row)   
 # ---------------------------------------
 # ✅ Streamlit UI
 # ---------------------------------------
 st.title("📈 RSI 변동성 매매")
-
 # ---------------------------------------
 # ✅ 설정 로드 (사용자 이름)
 # ---------------------------------------
-config = load_config()
-user_names = config["user_names"]
+# --- 1단계: Config 시트에서 사용자 목록 로드 ---
+user_mappings = load_user_mappings_from_config(workbook) 
+
+# --- 2단계: UI 구성을 위한 데이터 준비 ---
+# 표시 이름 리스트 생성
+display_names = [mapping['UserName'] for mapping in user_mappings] 
+
+# 이름(키)으로 ID(값)를 찾기 위한 매핑 딕셔너리 생성
+user_id_map = {mapping['UserName']: mapping[ID_COLUMN_NAME] for mapping in user_mappings}
 
 # ---------------------------------------
-# ✅ 사이드바에 사용자 이름 관리 섹션 추가
+# ✅ 사이드바에 사용자 이름 관리 섹션 제거 (테이블 기반 관리로 대체)
 # ---------------------------------------
-st.sidebar.subheader("👨‍💻 사용자 이름 관리")
-new_user_names = []
-for i, name in enumerate(user_names):
-    new_name = st.sidebar.text_input(f"사용자 {i+1} 이름", value=name)
-    new_user_names.append(new_name)
-
-if st.sidebar.button("사용자 이름 저장"):
-    config["user_names"] = new_user_names
-    save_config(config)
-    st.sidebar.success("사용자 이름이 저장되었습니다!")
-    st.rerun()
+##.sidebar.markdown("---")
+##.sidebar.info("사용자 목록은 Google Sheets 'Config' 시트의 'UserID'/'UserName' 테이블을 통해 관리됩니다.")
+##.sidebar.markdown("---")
 
 # ---------------------------------------
-# ✅ 사용자 선택 드롭다운
+# ✅ 사용자 선택 드롭다운 (고유 ID 추출 로직 포함)
 # ---------------------------------------
 st.subheader("👨‍💻 사용자 선택")
-if 'selected_user_name' not in st.session_state or st.session_state.selected_user_name not in user_names:
-    st.session_state.selected_user_name = user_names[0]
 
-selected_user = st.selectbox("사용자 이름", user_names, index=user_names.index(st.session_state.selected_user_name))
+# 초기 선택값 설정
+if 'selected_user_name' not in st.session_state:
+    st.session_state.selected_user_name = display_names[0] if display_names else "기본 사용자"
 
-if selected_user != st.session_state.selected_user_name:
-    st.session_state.selected_user_name = selected_user
+# 현재 목록에 없는 세션 값은 첫 번째 값으로 초기화 (시트에서 목록이 바뀐 경우)
+if st.session_state.selected_user_name not in display_names:
+    st.session_state.selected_user_name = display_names[0] if display_names else "기본 사용자"
+
+try:
+    current_index = display_names.index(st.session_state.selected_user_name)
+except ValueError:
+    current_index = 0
+
+selected_user_name = st.selectbox("사용자 이름", display_names, index=current_index)
+
+# 선택된 사용자 이름과 고유 ID 정의
+CURRENT_DISPLAY_NAME = selected_user_name
+UNIQUE_ID_KEY = user_id_map.get(CURRENT_DISPLAY_NAME)
+
+if UNIQUE_ID_KEY is None:
+    # 이 오류는 Config 시트에 문제가 있을 때 발생합니다.
+    st.error("오류: 선택된 사용자에 대한 고유 ID(UserID)를 Config 시트에서 찾을 수 없습니다.")
+    st.stop()
+
+if selected_user_name != st.session_state.selected_user_name:
+    st.session_state.selected_user_name = selected_user_name
     st.rerun()
 
-# 선택된 사용자의 파라미터 로드
-params = load_params(st.session_state.selected_user_name)
+# 선택된 사용자의 파라미터 로드 (UserID 기준으로 로드)
+# 이제 시트에 사용자 ID가 없으면 하드코딩된 기본값이 로드됩니다.
+params = load_params(CURRENT_DISPLAY_NAME, UNIQUE_ID_KEY)
 
 # ---------------------------------------
 # 스타일 설정 사전
@@ -551,59 +740,65 @@ styles = {
         "loss_cmpnd_int_rt": 0.213,
     }
 }
-
 # ---------------------------------------
 # 공통 파라미터
 # ---------------------------------------
 st.subheader("💹 공통 항목 설정")
-
 # 📝 스타일 선택
-style_option = st.selectbox("스타일 선택", list(styles.keys()), index=list(styles.keys()).index(params["style_option"]))
+style_options = list(styles.keys())
+current_style_index = style_options.index(params["style_option"]) if params["style_option"] in style_options else 0
+style_option = st.selectbox("스타일 선택", style_options, index=current_style_index)
 selected_style = styles[style_option]
+
 if style_option != params["style_option"]:
     params["style_option"] = style_option
-    save_params(params, st.session_state.selected_user_name)
+    # 고유 ID와 표시 이름 모두 전달
+    save_params_robust(params, UNIQUE_ID_KEY, CURRENT_DISPLAY_NAME)
 
 col1, col2 = st.columns(2)
 
 with col1:
     # 📝 티커 선택
     tickers = ('SOXL', 'KORU', 'TQQQ', 'BITU')
-    target_ticker = st.selectbox('티커 *', tickers, index=tickers.index(params["target_ticker"]))
+    current_ticker_index = tickers.index(params["target_ticker"]) if params["target_ticker"] in tickers else 0
+    target_ticker = st.selectbox('티커 *', tickers, index=current_ticker_index)
+    
     if target_ticker != params["target_ticker"]:
         params["target_ticker"] = target_ticker
-        save_params(params, st.session_state.selected_user_name)
+        # 고유 ID와 표시 이름 모두 전달
+        save_params_robust(params, UNIQUE_ID_KEY, CURRENT_DISPLAY_NAME)
 
 with col2:
     # 📝 투자금액 입력
-    first_amt = st.number_input("투자금액(USD) *", value=params["first_amt"], step=500)
+    first_amt = st.number_input("투자금액(USD) *", value=params["first_amt"], step=500, min_value=100)
     if first_amt != params["first_amt"]:
         params["first_amt"] = first_amt
-        save_params(params, st.session_state.selected_user_name)
-    st.markdown(f"**입력한 투자금액:** {first_amt:,}")
+        # 고유 ID와 표시 이름 모두 전달
+        save_params_robust(params, UNIQUE_ID_KEY, CURRENT_DISPLAY_NAME)
+    st.markdown(f"**현재 설정된 투자금액:** {first_amt:,} USD")
 
 # 시작일자 + 종료일자
 col3, col4 = st.columns(2)
 
 with col3:
     # 📝 투자 시작일 입력
-    start_date = st.date_input("투자시작일 *", value=datetime.strptime(params["start_date"], '%Y-%m-%d').date())
+    start_date_value = datetime.strptime(params["start_date"], '%Y-%m-%d').date()
+    start_date = st.date_input("투자시작일 *", value=start_date_value)
     if start_date.strftime('%Y-%m-%d') != params["start_date"]:
         params["start_date"] = start_date.strftime('%Y-%m-%d')
-        save_params(params, st.session_state.selected_user_name)
+        # 고유 ID와 표시 이름 모두 전달
+        save_params_robust(params, UNIQUE_ID_KEY, CURRENT_DISPLAY_NAME)
 
 with col4:
-    # 📝 투자 종료일 입력
-    end_date = st.date_input("투자종료일 *", value=datetime.strptime(params["end_date"], '%Y-%m-%d').date())
-    # ⛔️ 수정된 부분: 아래 두 줄을 삭제 또는 주석 처리하여 투자 종료일이 저장되지 않도록 함
-    # if end_date.strftime('%Y-%m-%d') != params["end_date"]:
-    #     params["end_date"] = end_date.strftime('%Y-%m-%d')
-    #     save_params(params, st.session_state.selected_user_name)
+    # 📝 투자 종료일 입력 (이 값은 Sheets에 저장되지 않음)
+    end_date_value = datetime.strptime(params["end_date"], '%Y-%m-%d').date() if params.get("end_date") and params["end_date"] else datetime.now().date()
+    end_date = st.date_input("투자종료일 *", value=end_date_value)
+    # NOTE: end_date는 save_params_robust에서 저장하지 않도록 유지합니다.
 
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ---------------------------------------
-# 안전모드 파라미터
+# 안전모드 파라미터 (생략된 함수들은 오류 방지를 위해 임시 정의)
 # ---------------------------------------
 st.subheader("💹 안전모드 설정")
 safe_hold_days = selected_style["safe_hold_days"]
@@ -622,7 +817,6 @@ with col6:
     st.markdown(f"**매도조건이율:** {selected_style['safe_sell_threshold']}%")
 
 st.markdown("<br>", unsafe_allow_html=True)
-
 # ---------------------------------------
 # 공세모드 파라미터
 # ---------------------------------------
@@ -644,16 +838,38 @@ with col8:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
+# --- 전략 실행 버튼 이후의 로직 (간소화) ---
+
+# 더미 함수 정의 (원본 코드의 오류 방지용)
+#def get_mode_and_target_prices(*args): return pd.DataFrame()
+#def extract_orders(*args): return [], []
+#def remove_duplicates(*args): pass
+#def print_table(*args): return pd.DataFrame()
+#def highlight_order(*args): return pd.DataFrame()
+
 if st.button("▶ 전략 실행"):
+    if start_date >= end_date:
+        st.error("시작일은 종료일보다 이전이어야 합니다.")
+        st.stop()
+        
     status_placeholder = st.empty()
-    status_placeholder.info("전략 실행 중입니다...")
+    status_placeholder.info("전략 실행 중입니다. (데이터 로드 및 계산에 시간이 걸릴 수 있습니다.)")
 
     prft_cmpnd_int_rt = selected_style["prft_cmpnd_int_rt"]
     loss_cmpnd_int_rt = selected_style["loss_cmpnd_int_rt"]
 
-    df_result = get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, 0, safe_hold_days, safe_buy_threshold, safe_sell_threshold, aggr_hold_days, aggr_buy_threshold, aggr_sell_threshold, aggr_div_cnt, prft_cmpnd_int_rt, loss_cmpnd_int_rt)
+    # 캐싱된 함수 호출 시 모든 인자 전달
+    df_result = get_mode_and_target_prices(
+        start_date, end_date, target_ticker, first_amt, 0, 
+        safe_hold_days, safe_buy_threshold, safe_sell_threshold, safe_div_cnt, 
+        aggr_hold_days, aggr_buy_threshold, aggr_sell_threshold, aggr_div_cnt, 
+        prft_cmpnd_int_rt, loss_cmpnd_int_rt
+    )
 
     pd.set_option('future.no_silent_downcasting', True)
+
+    print("------------ df_result : ", df_result)
+
     printable_df = df_result.replace({None: np.nan})
     printable_df = printable_df.astype(str).replace({"None": "", "nan": ""})
 
@@ -663,14 +879,29 @@ if st.button("▶ 전략 실행"):
     else:
         status_placeholder.empty()
         st.success("전략 실행 완료!")
-
+        
+        # --- 요약 계산 로직 ---
         buy_data = df_result[["일자", "매수가", "매수량"]].copy()
         buy_data.columns = ["date", "price", "quantity"]
         sell_data = df_result[["실제매도일", "실제매도가", "실제매도량"]].copy()
         sell_data.columns = ["date", "price", "quantity"]
         sell_data = sell_data.dropna(subset=["quantity"])
         sell_data["quantity"] = -sell_data["quantity"]
-        df = pd.concat([buy_data, sell_data], ignore_index=True)
+        ###df = pd.concat([buy_data, sell_data], ignore_index=True)
+
+        # 수정 코드: 비어있지 않은 데이터프레임만 병합
+        dataframes_to_concat = []
+        if not buy_data.empty:
+            dataframes_to_concat.append(buy_data)
+        if not sell_data.empty:
+            dataframes_to_concat.append(sell_data)
+
+        if dataframes_to_concat:
+            df = pd.concat(dataframes_to_concat, ignore_index=True)
+        else:
+            # 둘 다 비어있을 경우, 컬럼 구조를 유지하며 빈 DF 생성
+            df = pd.DataFrame(columns=buy_data.columns)
+
         df = df.dropna(subset=["date", "price", "quantity"])
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
         df = df.sort_values("date").reset_index(drop=True)
@@ -694,13 +925,12 @@ if st.button("▶ 전략 실행"):
             history.append((date.date(), round(avg_prc, 4)))
 
         total_qty = int(df["quantity"].sum())
+        # 매수/매도 금액이 모두 있는 행만 대상으로 손익 계산
         total_profit = df_result.dropna(subset=["실제매도금액", "매수금액"]).apply(
             lambda row: (row["실제매도금액"] - row["매수금액"]), axis=1
         ).sum()
-        profit_ratio = (total_profit / first_amt * 100)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        
+        profit_ratio = (total_profit / first_amt * 100) if first_amt else 0
+        st.markdown("<br>", unsafe_allow_html=True)      
         summary_data = {
             "항목": [
                 "📦 현재 보유량",
@@ -720,6 +950,7 @@ if st.button("▶ 전략 실행"):
         st.subheader("💹 요 약")
         st.table(summary_df)
 
+        # --- 매매 리스트 및 다운로드 ---
         styled_df = printable_df.style.format({
             "종가": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
             "변동률": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
@@ -757,19 +988,20 @@ if st.button("▶ 전략 실행"):
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-    sell_orders, buy_orders = extract_orders(df_result)
-    print_orders(sell_orders, buy_orders)
-    remove_duplicates(sell_orders, buy_orders)
+        # --- 당일 주문 리스트 (상계 처리) ---
+        sell_orders, buy_orders = extract_orders(df_result)
+        # print_orders(sell_orders, buy_orders) # 콘솔 출력 생략
+        remove_duplicates(sell_orders, buy_orders)
 
-    df_sell = print_table(sell_orders)
-    df_buy = print_table(buy_orders)
-    df_result = pd.concat([df_sell, df_buy], ignore_index=True)
- 
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("📊 당일 주문 리스트")
-    styled_df = (df_result
-                     .style
-                     .apply(highlight_order, axis=1).format({"주문가": "{:.2f}"})
-                ) 
-    st.dataframe(styled_df, use_container_width=True)
-    
+        df_sell = print_table(sell_orders)
+        df_buy = print_table(buy_orders)
+        df_order_result = pd.concat([df_sell, df_buy], ignore_index=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.subheader("📊 당일 주문 리스트")
+        styled_df_orders = (df_order_result
+                            .style
+                            .apply(highlight_order, axis=1).format({"주문가": "{:,.2f}"})
+                        ) 
+        st.dataframe(styled_df_orders, use_container_width=True)
+
