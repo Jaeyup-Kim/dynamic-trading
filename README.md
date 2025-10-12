@@ -6,4 +6,5 @@ datetime
 namedtuple
 timedelta
 gspread
+oauth2client
 finance-datareader
