@@ -848,7 +848,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 #def highlight_order(*args): return pd.DataFrame()
 
 if st.button("▶ 전략 실행"):
-    if start_date >= end_date:
+    if start_date > end_date:
         st.error("시작일은 종료일보다 이전이어야 합니다.")
         st.stop()
         
@@ -1004,4 +1004,5 @@ if st.button("▶ 전략 실행"):
                             .apply(highlight_order, axis=1).format({"주문가": "{:,.2f}"})
                         ) 
         st.dataframe(styled_df_orders, use_container_width=True)
+
 
