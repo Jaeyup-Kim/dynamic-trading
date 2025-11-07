@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import gspread # Google Sheets 연동 라이브러리
-import json
 import yfinance as yf
 from datetime import datetime, timedelta
 import pandas_market_calendars as mcal
@@ -9,6 +8,7 @@ from collections import namedtuple
 import numpy as np
 import FinanceDataReader as fdr
 import io
+import json
 import time
 
 # --- 고유 식별자 설정 ---
@@ -33,7 +33,7 @@ def get_sheets_client():
         return client
     except Exception as e:
         st.error("Google Sheets 연결 설정(st.secrets) 오류: google_service_account_key를 확인하세요.")
-        st.stop()
+        st.stop() # 오류 발생 시 앱 실행 중단
         
 client = get_sheets_client()
 url = st.secrets.get("google_sheet_url")
@@ -41,7 +41,7 @@ url = st.secrets.get("google_sheet_url")
 if not url:
     st.error("Google Sheet URL이 Secrets에 설정되지 않았습니다. 'google_sheet_url'을 확인하세요.")
     st.stop()
-
+    
 @st.cache_resource(ttl=3600)
 def get_spreadsheet(_client, url):
     """스프레드시트 객체를 한 번만 열고 캐시합니다. (클라이언트 인수는 해시에서 제외)"""
@@ -59,7 +59,7 @@ def get_worksheet(sheet_name):
         # 이미 캐시된 workbook 객체를 사용합니다.
         worksheet = workbook.worksheet(sheet_name)
         return worksheet
-    except gspread.WorksheetNotFound:
+    except gspread.exceptions.WorksheetNotFound:
         st.error(f"Google Sheet에 '{sheet_name}' 워크시트가 없습니다. 워크시트를 만들어 주세요.")
         st.stop()
     except Exception as e:
@@ -160,7 +160,6 @@ def load_params(display_name, unique_id):
         st.warning(f"'UserParams' 시트 데이터 로드 중 오류 발생: {e}. 하드코딩된 기본값 사용.")
         return default_params
 
-    
     # 1. 고유 ID(UserID)를 기준으로 해당 사용자의 데이터가 있는지 확인
     # Sheets에서는 ID_COLUMN_NAME을 'UserID'로 사용하고 있습니다.
     user_row = df[df[ID_COLUMN_NAME] == unique_id]
@@ -257,11 +256,8 @@ def calculate_rsi(data, window=14):
 # ✅ 주간 RSI용 주차 계산 함수
 # ---------------------------------------
 def get_week_num(date):
-    return int(date.strftime("%Y%U"))
+    return int(date.strftime("%Y%U"))  # %U: 주차 (일요일 시작)
 
-# ---------------------------------------
-# ✅ 주요 파라미터 (전략 설정값)
-# ---------------------------------------
 # 투자금 갱신 설정
 INVT_RENWL_CYLE = 10
 # 주문 정보 구조 정의
@@ -269,6 +265,10 @@ Order = namedtuple('Order', ['side', 'type', 'price', 'quantity'])
 
 # ---------- 유틸 함수들 ----------
 def get_weeknum_google_style(date):
+    """
+    Google Calendar 스타일의 주차(Week Number) 계산
+    기준: 1월 1일부터 시작, 요일 보정 포함
+    """
     jan1 = pd.Timestamp(year=date.year, month=1, day=1).tz_localize(None)
     date = pd.Timestamp(date).tz_localize(None)
     weekday_jan1 = jan1.weekday()
@@ -276,6 +276,9 @@ def get_weeknum_google_style(date):
     return ((delta_days + weekday_jan1) // 7) + 1
 
 def get_last_trading_day_each_week(data):
+    """
+    각 주차별로 가장 마지막 거래일 데이터를 추출 (주간 RSI 계산용)
+    """
     data = data.copy()
     data['week'] = data.index.to_series().apply(get_weeknum_google_style)
     data['year'] = data.index.to_series().dt.year
@@ -284,6 +287,10 @@ def get_last_trading_day_each_week(data):
     return data.loc[last_day['weekday']]
 
 def calculate_rsi_rolling(data, period=14):
+    """
+    RSI(상대강도지수)를 주어진 기간 기준으로 계산
+    기본: 14일
+    """
     data = data.copy()
     data['delta'] = data['Close'].diff()
     data['gain'] = data['delta'].where(data['delta'] > 0, 0.0)
@@ -295,6 +302,10 @@ def calculate_rsi_rolling(data, period=14):
     return data
 
 def assign_mode_v2(rsi_series):
+    """
+    RSI 흐름을 기반으로 안전/공세 모드를 판별
+    2주 전과 1주 전 RSI 값을 비교
+    """
     mode_list = []
     for i in range(len(rsi_series)):
         if i < 2:
@@ -303,12 +314,14 @@ def assign_mode_v2(rsi_series):
         two_weeks_ago = rsi_series.iloc[i - 2]
         one_week_ago = rsi_series.iloc[i - 1]
 
+        # 안전 조건
         if (
             (two_weeks_ago > 65 and two_weeks_ago > one_week_ago) or
             (40 < two_weeks_ago < 50 and two_weeks_ago > one_week_ago) or
             (one_week_ago < 50 and 50 < two_weeks_ago)
         ):
             mode = "안전"
+        # 공세 조건
         elif (
             (two_weeks_ago < 35 and two_weeks_ago < one_week_ago) or
             (50 < two_weeks_ago < 60 and two_weeks_ago < one_week_ago) or
@@ -321,6 +334,10 @@ def assign_mode_v2(rsi_series):
     return mode_list
 
 def get_future_market_day(start_day, market_days, offset_days):
+    """
+    기준일로부터 N일 후의 거래일 반환
+    예: MOC 매도를 위한 MOC매도일자 계산
+    """
     market_days = market_days[market_days > start_day]
     if len(market_days) < offset_days:
         return None
@@ -328,6 +345,11 @@ def get_future_market_day(start_day, market_days, offset_days):
 
 # ---------- 주문 추출 ----------
 def extract_orders(df):
+    """
+    DataFrame에서 매수/매도 대상 주문 추출
+    - 매도: 목표가 존재하고 아직 매도되지 않은 건
+    - 매수: 마지막 날 LOC 매수 목표가 존재하는 경우
+    """
     sell_orders = []
     buy_orders = []
 
@@ -337,7 +359,8 @@ def extract_orders(df):
             qty = int(row['매수량']) if pd.notna(row['매수량']) else 0
             if qty > 0:
                 sell_orders.append(Order("매도", "LOC", price, qty))
-
+        
+        # 실제매도일이 미입력이고 MOC매도일이 존재하고 주문유형이 MOC일 경우
         elif pd.isna(row['실제매도일']) and pd.notna(row['MOC매도일']) and row['주문유형'] == "MOC":
             price = round(row['매도목표가'], 2)
             qty = int(row['매수량']) if pd.notna(row['매수량']) else 0
@@ -361,6 +384,7 @@ def calc_balance(row, prev_balance, sell_list):
     if not row.get("종가"):
         return None
 
+    # 매수금액이 아닌 매수예정 기준으로 차감
     planned_buy = row.get("매수예정", 0) or 0
     trade_day = row.get("일자")
 
@@ -371,6 +395,7 @@ def calc_balance(row, prev_balance, sell_list):
     )
 
     return round(prev_balance - planned_buy + today_sell_profit, 2)
+
 # ---------------------------------------
 # ✅ RSI 매매 전략 실행
 # ---------------------------------------
@@ -378,10 +403,10 @@ def calc_balance(row, prev_balance, sell_list):
 def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, day_cnt, safe_hold_days, safe_buy_threshold, safe_sell_threshold, safe_div_cnt, aggr_hold_days, aggr_buy_threshold, aggr_sell_threshold, aggr_div_cnt, prft_cmpnd_int_rt, loss_cmpnd_int_rt):
 
     v_first_amt = first_amt
-    result = []
+    result_rows = []
 
     start_dt, end_dt = pd.to_datetime(start_date), pd.to_datetime(end_date)
-    qqq_start = start_dt - pd.Timedelta(weeks=20)
+    qqq_start = start_dt - pd.Timedelta(weeks=20) # RSI 계산을 위한 20주치 데이터 필요
 
     nyse = mcal.get_calendar("NYSE")
     market_days = nyse.schedule(
@@ -392,7 +417,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     # QQQ 데이터 로드
     qqq = fdr.DataReader("QQQ", qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
     qqq.index = pd.to_datetime(qqq.index)
-    if end_dt not in qqq.index:
+    if end_dt not in qqq.index: # 종료일자가 데이터에 없으면 추가
         qqq.loc[end_dt] = None
 
     weekly = get_last_trading_day_each_week(qqq)
@@ -414,21 +439,27 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         if (year, week) not in mode_by_year_week.index:
             continue
 
+        # 해당 날짜의 연도 및 주차 정보로 모드(RSI 기반) 조회
         mode_info = mode_by_year_week.loc[(year, week)]
         mode = mode_info["모드"]
         rsi = round(mode_info["RSI"], 2)
 
         prev_days = ticker_data.index[ticker_data.index < day]
+
+
         if len(prev_days) == 0:
             continue
         prev_close = round(ticker_data.loc[prev_days[-1], "Close"], 2)
 
+        # 해당일 종가 (체결 여부 판단용)
         actual_close = ticker_data.loc[day, "Close"] if day in ticker_data.index else None
+
         if pd.notna(actual_close):
             actual_close = round(actual_close, 2)
         today_close = actual_close
 
         if mode == "안전":
+            # 모드에 따라 목표가 및 보유일 설정
             div_cnt = safe_div_cnt
             target_price = round(prev_close * (1 + safe_buy_threshold), 2)
             sell_target_price = round((actual_close or target_price) * (1 + safe_sell_threshold), 2)
@@ -439,6 +470,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
             sell_target_price = round((actual_close or target_price) * (1 + aggr_sell_threshold), 2)
             holding_days = aggr_hold_days
 
+        # 1회 매수에 사용할 금액 및 목표 수량 계산
         daily_buy_amount = round(v_first_amt / div_cnt, 2)
         target_qty = int(daily_buy_amount // target_price) if target_price else 0
 
@@ -446,13 +478,15 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         buy_amt = None
         moc_sell_date = get_future_market_day(day, market_days, holding_days)
         
+        # 초기화: 실제 매도 관련 정보
         actual_sell_date = actual_sell_price = actual_sell_qty = actual_sell_amount = prft_amt = None
         order_type = ""
 
+        # 실제 체결 가능한 경우 (매수 목표가 ≥ 종가)
         if actual_close and target_price >= actual_close and target_qty > 0:
             buy_qty = target_qty
             buy_amt = round(buy_qty * actual_close, 2)
-
+            # 보유 기간 내 종가가 매도 목표가를 넘긴 경우 매도 성사
             hold_range = market_days[(market_days >= day)][:holding_days]
             future_prices = ticker_data.loc[ticker_data.index.isin(hold_range)]
             match = future_prices[future_prices["Close"] >= sell_target_price]
@@ -461,6 +495,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
                 actual_sell_date = match.index[0].date()
                 actual_sell_price = round(match.iloc[0]["Close"], 2)
             elif moc_sell_date and pd.Timestamp(moc_sell_date) in ticker_data.index:
+                # 조건 달성 실패 시 MOC 매도
                 actual_sell_date = moc_sell_date
                 actual_sell_price = round(ticker_data.loc[pd.Timestamp(moc_sell_date)]["Close"], 2)
 
@@ -472,13 +507,14 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
             else:
                 order_type = "LOC"
 
-        else:
+        else: # 매수 미체결 시: 관련 값 모두 초기화
             actual_close = None
             sell_target_price = None
             moc_sell_date = None
             prft_amt = 0.0
 
-        result.append({
+        # 결과 누적
+        result_rows.append({
             "일자": day.date(),
             "종가": today_close,
             "모드": mode,
@@ -489,12 +525,14 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
             "매수가": actual_close,
             "매수량": None,
             "매수금액": None,
+           # "매수수수료": None,
             "매도목표가": sell_target_price,
             "MOC매도일": moc_sell_date,
             "실제매도일": actual_sell_date,
             "실제매도가": actual_sell_price,
             "실제매도량": None,
             "실제매도금액": None,
+           # "매도수수료": None,
             "당일실현": None,
             "매매손익": None,
             "누적매매손익": None,
@@ -505,9 +543,15 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         })
         day_cnt += 1
 
+    result = pd.DataFrame(result_rows)
+    if result.empty:
+        return result
+
     prev_cash = prev_pmt_update = first_amt
     prev_profit_sum = 0.0
     daily_realized_profits = {}
+
+    #print("----------------result : ", result)
 
     num_cols = ["실제매도금액", "매매손익", "당일실현"]
     for col in num_cols:
@@ -596,8 +640,12 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     # 함수 최종 반환 시에는 이미 DataFrame이므로 그대로 반환
     return result
 
+
 # ----------상계 처리 표 출력 ----------
 def print_table(orders):
+    """
+    주문 리스트를 DataFrame으로 변환
+    """
     df = pd.DataFrame([{
         "매매유형": order.side,
         "주문유형": order.type,
@@ -608,10 +656,20 @@ def print_table(orders):
     return df
 
 def print_orders(sell_orders, buy_orders):
+    """
+    매도/매수 주문을 구분 출력
+    - 매도는 가격 내림차순
+    - 매수는 가격 오름차순
+    """
     # 이 함수는 콘솔 디버깅용이므로 출력 생략
     pass
 
 def remove_duplicates(sell_orders, buy_orders):
+    """
+    LOC/MOC 주문을 기준으로 매수/매도 간 가격 정산 및 충돌 제거
+    - 매도 주문은 가격 내림차순, 매수 주문은 오름차순 정렬
+    - LOC 매수 가격보다 낮은 매도 주문은 상계 처리 후보
+    """
     if not sell_orders or not buy_orders:
         return
 
@@ -623,6 +681,7 @@ def remove_duplicates(sell_orders, buy_orders):
     sell_moc_order = None
     b_exist_moc = False
 
+    # MOC 매도 주문과 LOC 매도 주문 분리
     for sell_order in sell_orders:
         if sell_order.type == "MOC":
             sell_moc_order = sell_order
@@ -639,6 +698,7 @@ def remove_duplicates(sell_orders, buy_orders):
 
     buy_order_quantity = buy_order.quantity
 
+    # MOC 매도 주문 처리
     if b_exist_moc:
         if sell_moc_order.quantity > buy_order.quantity:
             new_sell_orders.append(Order("매도","MOC", 0.0, sell_moc_order.quantity - buy_order.quantity ))
@@ -652,6 +712,7 @@ def remove_duplicates(sell_orders, buy_orders):
 
     filtered_sell_orders.sort(key=lambda x: x.price)
 
+    # LOC 매도 주문 상계처리
     for sell_order in filtered_sell_orders:
         if buy_order.quantity == 0:
             new_sell_orders.append(sell_order)
@@ -681,12 +742,14 @@ def remove_duplicates(sell_orders, buy_orders):
     buy_orders[:] = new_buy_orders
 
 def highlight_order(row):
+    """당일주문 리스트색상 지정"""
     if row["매매유형"] == "매도":
-        return ['background-color: #D9EFFF'] * len(row)
+        return ['background-color: #D9EFFF'] * len(row)  # 하늘색
     elif row["매매유형"] == "매수":
-        return ['background-color: #FFE6E6'] * len(row)
+        return ['background-color: #FFE6E6'] * len(row)  # 분홍색
     else:
-        return [''] * len(row)   
+        return [''] * len(row)
+
 # ---------------------------------------
 # ✅ Streamlit UI
 # ---------------------------------------
@@ -714,7 +777,7 @@ user_id_map = {mapping['UserName']: mapping[ID_COLUMN_NAME] for mapping in user_
 # ---------------------------------------
 # ✅ 사용자 선택 드롭다운 (고유 ID 추출 로직 포함)
 # ---------------------------------------
-st.subheader("👨‍💻 사용자 선택")
+st.subheader("👨‍💻 사용자 설정")
 
 # 초기 선택값 설정
 if 'selected_user_name' not in st.session_state:
@@ -729,7 +792,7 @@ try:
 except ValueError:
     current_index = 0
 
-selected_user_name = st.selectbox("사용자 이름", display_names, index=current_index)
+selected_user_name = st.selectbox("사용자", display_names, index=current_index, label_visibility="collapsed")
 
 # 선택된 사용자 이름과 고유 ID 정의
 CURRENT_DISPLAY_NAME = selected_user_name
@@ -905,8 +968,6 @@ if st.button("▶ 전략 실행"):
 
     pd.set_option('future.no_silent_downcasting', True)
 
-    print("------------ df_result : ", df_result)
-
     printable_df = df_result.replace({None: np.nan})
     printable_df = printable_df.astype(str).replace({"None": "", "nan": ""})
 
@@ -924,7 +985,6 @@ if st.button("▶ 전략 실행"):
         sell_data.columns = ["date", "price", "quantity"]
         sell_data = sell_data.dropna(subset=["quantity"])
         sell_data["quantity"] = -sell_data["quantity"]
-        ###df = pd.concat([buy_data, sell_data], ignore_index=True)
 
         # 수정 코드: 비어있지 않은 데이터프레임만 병합
         dataframes_to_concat = []
@@ -943,23 +1003,25 @@ if st.button("▶ 전략 실행"):
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
         df = df.sort_values("date").reset_index(drop=True)
 
-        avg_prc = 0
-        history = []
-        unique_dates = df["date"].unique()
+        avg_prc = 0.0
+        if not df.empty:
+            history = []
+            unique_dates = df["date"].unique()
 
-        for date in unique_dates:
-            sub = df[df["date"] == date]
-            p = sub["price"].iloc[0]
-            q = sub["quantity"].sum()
-            past_qty = df[df["date"] < date]["quantity"].sum()
+            for trade_date in unique_dates:
+                sub = df[df["date"] == trade_date]
+                p = sub["price"].iloc[0]
+                q = sub["quantity"].sum()
+                past_qty = df[df["date"] < trade_date]["quantity"].sum()
 
-            if avg_prc == 0:
-                avg_prc = p
-            elif q < 0:
-                pass
-            else:
-                avg_prc = (avg_prc * past_qty + p * q) / (past_qty + q)
-            history.append((date.date(), round(avg_prc, 4)))
+                if avg_prc == 0:
+                    avg_prc = p
+                elif q < 0: # 매도일 경우 평단 유지
+                    pass
+                else: # 매수일 경우 가중평균
+                    if (past_qty + q) > 0:
+                        avg_prc = (avg_prc * past_qty + p * q) / (past_qty + q)
+                history.append((trade_date.date(), round(avg_prc, 4)))
 
         total_qty = int(df["quantity"].sum())
         # 매수/매도 금액이 모두 있는 행만 대상으로 손익 계산
@@ -967,7 +1029,8 @@ if st.button("▶ 전략 실행"):
             lambda row: (row["실제매도금액"] - row["매수금액"]), axis=1
         ).sum()
         profit_ratio = (total_profit / first_amt * 100) if first_amt else 0
-        st.markdown("<br>", unsafe_allow_html=True)      
+        
+        st.markdown("<br>", unsafe_allow_html=True)
         summary_data = {
             "항목": [
                 "📦 현재 보유량",
@@ -1036,11 +1099,8 @@ if st.button("▶ 전략 실행"):
         
         st.markdown("<br>", unsafe_allow_html=True)
         st.subheader("📊 당일 주문 리스트")
-        styled_df_orders = (df_order_result
+        styled_df_orders = (df_order_result.reset_index(drop=True)
                             .style
                             .apply(highlight_order, axis=1).format({"주문가": "{:,.2f}"})
                         ) 
         st.dataframe(styled_df_orders, use_container_width=True)
-
-
-
