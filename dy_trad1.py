@@ -509,55 +509,92 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     prev_profit_sum = 0.0
     daily_realized_profits = {}
 
-    for i, row in enumerate(result):
+    num_cols = ["실제매도금액", "매매손익", "당일실현"]
+    for col in num_cols:
+        if col in result.columns:
+            result[col] = pd.to_numeric(result[col], errors="coerce")
+
+    ##for i, row in enumerate(result):
+    # result는 이미 pd.DataFrame(result_rows)로 생성되어 있다고 가정
+    # prev_cash, prev_pmt_update, first_amt, prev_profit_sum, daily_realized_profits, safe_div_cnt, aggr_div_cnt, INVT_RENWL_CYLE, prft_cmpnd_int_rt, loss_cmpnd_int_rt 등은 기존값 유지
+
+    for i, idx in enumerate(result.index):
+        # 행(읽기 전용) 가져오기
+        row = result.loc[idx]
+
+        # 모드에 따라 분할수 결정
         if row["모드"] == "안전":
             div_cnt = safe_div_cnt
         else:
             div_cnt = aggr_div_cnt
 
+        # 매수예정(금액) 계산
         base_amt = round((prev_pmt_update if i > 0 else first_amt) / div_cnt, 2)
-        if prev_cash is None:
-            row["매수예정"] = base_amt
-        else:
-            row["매수예정"] = min(base_amt, prev_cash)
+        buy_plan = base_amt if prev_cash is None else min(base_amt, prev_cash)
+        result.loc[idx, "매수예정"] = buy_plan
 
-        tgt_price, buy_price, sell_price = row["LOC매수목표"], row["매수가"], row["실제매도가"]
-        qty = int(row["매수예정"] // tgt_price) if tgt_price else None
-        row["목표량"] = qty
-        row["매수량"] = qty if buy_price else None
-        row["매수금액"] = round(qty * buy_price, 2) if qty and buy_price else None
+        # 가격/수량 계산
+        tgt_price = row.get("LOC매수목표")
+        buy_price = row.get("매수가")
+        sell_price = row.get("실제매도가")
 
+        qty = int(buy_plan // tgt_price) if (tgt_price and tgt_price > 0) else None
+        result.loc[idx, "목표량"] = qty
+        result.loc[idx, "매수량"] = qty if buy_price else None
+        result.loc[idx, "매수금액"] = round(qty * buy_price, 2) if (qty and buy_price) else None
+
+        # 매도 처리(실제매도가가 있으면 매매손익 산정)
         if qty and sell_price:
-            row["실제매도량"] = qty
-            row["실제매도금액"] = round(qty * sell_price, 2)
-            row["매매손익"] = row["실제매도금액"] - (row["매수금액"] or 0)
-
-        if row["매매손익"] is not None:
-            prev_profit_sum += row["매매손익"]
-
-        row["누적매매손익"] = prev_profit_sum
-
-        buy_amt = row.get("매수금액") or 0
-        trade_day = row["일자"]
-        sell_amt = sum(r.get("실제매도금액") or 0 for r in result if r["실제매도일"] == trade_day)
-        prev_cash = prev_cash - buy_amt + sell_amt
-        row["예수금"] = prev_cash if row["종가"] else None
-
-        if trade_day not in daily_realized_profits:
-            daily_realized_profits[trade_day] = sum((r.get("매매손익") or 0) for r in result if r.get("실제매도일") == trade_day)
-        row["당일실현"] = daily_realized_profits[trade_day] or None
-
-        if (i + 1) % INVT_RENWL_CYLE == 0:
-            bfs = sum((r.get("당일실현") or 0) for r in result[max(0, i - INVT_RENWL_CYLE + 1):i + 1])
-            rate = prft_cmpnd_int_rt if bfs > 0 else loss_cmpnd_int_rt
-            row["복리금액"] = round(bfs * rate, 2)
+            real_sell_amt = round(qty * sell_price, 2)
+            result.loc[idx, "실제매도량"] = qty
+            result.loc[idx, "실제매도금액"] = real_sell_amt
+            result.loc[idx, "매매손익"] = real_sell_amt - (result.loc[idx, "매수금액"] or 0)
         else:
-            row["복리금액"] = None
+            result.loc[idx, "실제매도량"] = None
+            result.loc[idx, "실제매도금액"] = None
+            result.loc[idx, "매매손익"] = None
 
-        prev_pmt_update += row["복리금액"] or 0
-        row["자금갱신"] = prev_pmt_update
+        # 누적매매손익 업데이트
+        if result.loc[idx, "매매손익"] is not None:
+            prev_profit_sum += result.loc[idx, "매매손익"]
+        result.loc[idx, "누적매매손익"] = prev_profit_sum
 
-    return pd.DataFrame(result)   
+        # 동일 거래일의 총 실현(매도)금액 계산 (마스크 사용)
+        trade_day = row.get("일자")
+        if pd.isna(trade_day):
+            sell_amt = 0
+        else:
+            mask_same_day = result["실제매도일"] == trade_day
+            sell_amt = result.loc[mask_same_day, "실제매도금액"].fillna(0).sum()
+
+        # 예수금 업데이트
+        buy_amt = result.loc[idx, "매수금액"] or 0
+        prev_cash = prev_cash - buy_amt + sell_amt
+        result.loc[idx, "예수금"] = prev_cash if row.get("종가") is not None else None
+
+        # 당일 실현 손익 집계 (캐시 dict 대신 DataFrame으로 계산 가능)
+        # 여기서는 daily_realized_profits dict를 유지하되 key는 trade_day로 통일
+        if trade_day not in daily_realized_profits:
+            mask = result["실제매도일"] == trade_day
+            daily_realized_profits[trade_day] = result.loc[mask, "매매손익"].fillna(0).sum()
+        result.loc[idx, "당일실현"] = daily_realized_profits.get(trade_day) or None
+
+        # 복리금액 계산: 최근 INVT_RENWL_CYLE 행의 '당일실현' 합계 사용
+        if (i + 1) % INVT_RENWL_CYLE == 0:
+            start_pos = max(0, i - INVT_RENWL_CYLE + 1)
+            window = result.iloc[start_pos:i + 1]
+            bfs = window["당일실현"].fillna(0).sum()
+            rate = prft_cmpnd_int_rt if bfs > 0 else loss_cmpnd_int_rt
+            result.loc[idx, "복리금액"] = round(bfs * rate, 2)
+        else:
+            result.loc[idx, "복리금액"] = None
+
+        # 자금갱신 업데이트
+        prev_pmt_update += result.loc[idx, "복리금액"] or 0
+        result.loc[idx, "자금갱신"] = prev_pmt_update
+
+    # 함수 최종 반환 시에는 이미 DataFrame이므로 그대로 반환
+    return result
 
 # ----------상계 처리 표 출력 ----------
 def print_table(orders):
@@ -1004,5 +1041,6 @@ if st.button("▶ 전략 실행"):
                             .apply(highlight_order, axis=1).format({"주문가": "{:,.2f}"})
                         ) 
         st.dataframe(styled_df_orders, use_container_width=True)
+
 
 
