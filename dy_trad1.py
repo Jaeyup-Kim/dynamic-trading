@@ -621,9 +621,18 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
             mask_same_day = result["실제매도일"] == trade_day
             sell_amt = result.loc[mask_same_day, "실제매도금액"].fillna(0).sum()
 
-        # 예수금 업데이트
+       # 예수금 업데이트
+        # buy_amt = result.loc[idx, "매수금액"] or 0
+        # prev_cash = prev_cash - buy_amt + sell_amt
+        # result.loc[idx, "예수금"] = prev_cash if row.get("종가") is not None else None
+
         buy_amt = result.loc[idx, "매수금액"] or 0
-        prev_cash = prev_cash - buy_amt + sell_amt
+        if result.loc[idx, "매수가"] is not None and buy_amt > 0:
+            prev_cash -= buy_amt  # 실제 체결시에만 예수금 차감
+
+        sell_amt = result.loc[mask_same_day, "실제매도금액"].fillna(0).sum()
+        if not pd.isna(sell_amt) and sell_amt > 0:
+            prev_cash += sell_amt
         result.loc[idx, "예수금"] = prev_cash if row.get("종가") is not None else None
 
         # 당일 실현 손익 집계 (캐시 dict 대신 DataFrame으로 계산 가능)
@@ -1114,3 +1123,4 @@ if st.button("▶ 전략 실행"):
                             .apply(highlight_order, axis=1).format({"주문가": "{:,.2f}"})
                         ) 
         st.dataframe(styled_df_orders, use_container_width=True)
+
