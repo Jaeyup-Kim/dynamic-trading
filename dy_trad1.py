@@ -348,9 +348,9 @@ def get_closing_price_robust(ticker: str, date: datetime) -> float | None:
     """DataReader 실패 시 yfinance로 종가 조회"""
     try:
         # yfinance는 start 이상 end 미만이므로 하루 뒤를 end로 설정
-        start_date_str = date.strftime('%Y-%m-%d')
-        #end_date_str = (date + timedelta(days=1)).strftime('%Y-%m-%d')
-        end_date_str = date.strftime('%Y-%m-%d')
+        # start_date_str = date.strftime('%Y-%m-%d')
+        start_date_str = (date - timedelta(days=1)).strftime('%Y-%m-%d')
+        end_date_str = (date + timedelta(days=1)).strftime('%Y-%m-%d')
         
         data = yf.download(
             ticker, 
@@ -1152,3 +1152,4 @@ if st.button("▶ 전략 실행"):
                             .apply(highlight_order, axis=1).format({"주문가": "{:,.2f}"})
                         ) 
         st.dataframe(styled_df_orders, use_container_width=True)
+
