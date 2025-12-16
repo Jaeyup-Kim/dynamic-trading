@@ -10,7 +10,6 @@ import FinanceDataReader as fdr
 import io
 import json
 import time
-import os
 
 # --- 고유 식별자 설정 ---
 # 시트의 행을 검색하는 기준이 되는 고유 키 컬럼 이름입니다.
@@ -344,6 +343,38 @@ def get_future_market_day(start_day, market_days, offset_days):
         return None
     return market_days[offset_days - 1].date()
 
+# ✅ yfinance로 종가 가져오는 함수 추가 (데이터 대체용)
+@st.cache_data(show_spinner=False)
+def get_closing_price_robust(ticker: str, date: datetime) -> float | None:
+    """DataReader 실패 시 yfinance로 종가 조회"""
+    try:
+        # yfinance는 start 이상 end 미만이므로 하루 뒤를 end로 설정
+        start_date_str = date.strftime('%Y-%m-%d')
+        end_date_str = (date + timedelta(days=1)).strftime('%Y-%m-%d')
+        
+        data = yf.download(
+            ticker, 
+            start=start_date_str, 
+            end=end_date_str, 
+            progress=False,
+            auto_adjust=True
+        )
+        
+        if not data.empty:
+            # 'Close' 컬럼 데이터 추출 (MultiIndex 대응)
+            close_val = data['Close']
+            if isinstance(close_val, pd.DataFrame):
+                # 멀티인덱스 컬럼인 경우 (예: Price, Ticker)
+                close_val = close_val.iloc[0, 0]
+            else:
+                # 시리즈인 경우
+                close_val = close_val.iloc[0]
+            return float(close_val)
+            
+        return None
+    except Exception:
+        return None
+
 # ---------- 주문 추출 ----------
 def extract_orders(df):
     """
@@ -407,7 +438,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     result_rows = []
 
     start_dt, end_dt = pd.to_datetime(start_date), pd.to_datetime(end_date)
-    qqq_start = start_dt - pd.Timedelta(weeks=20) # RSI 계산을 위한 20주치 데이터 필요
+    qqq_start = start_dt - pd.Timedelta(weeks=20)
 
     nyse = mcal.get_calendar("NYSE")
     market_days = nyse.schedule(
@@ -418,7 +449,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     # QQQ 데이터 로드
     qqq = fdr.DataReader("QQQ", qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
     qqq.index = pd.to_datetime(qqq.index)
-    if end_dt not in qqq.index: # 종료일자가 데이터에 없으면 추가
+    if end_dt not in qqq.index:
         qqq.loc[end_dt] = None
 
     weekly = get_last_trading_day_each_week(qqq)
@@ -440,27 +471,43 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         if (year, week) not in mode_by_year_week.index:
             continue
 
-        # 해당 날짜의 연도 및 주차 정보로 모드(RSI 기반) 조회
         mode_info = mode_by_year_week.loc[(year, week)]
         mode = mode_info["모드"]
         rsi = round(mode_info["RSI"], 2)
 
         prev_days = ticker_data.index[ticker_data.index < day]
-
-
         if len(prev_days) == 0:
             continue
-        prev_close = round(ticker_data.loc[prev_days[-1], "Close"], 2)
+        
+        # 전일 종가 가져오기 (결측시 yfinance 대체)
+        prev_day = prev_days[-1]
+        prev_close = None
+        if prev_day in ticker_data.index:
+            val = ticker_data.loc[prev_day, "Close"]
+            if pd.notna(val): prev_close = float(val)
+        
+        if prev_close is None:
+            prev_close = get_closing_price_robust(target_ticker, prev_day)
+            
+        if prev_close is None: continue # 전일 종가 없으면 스킵
 
-        # 해당일 종가 (체결 여부 판단용)
-        actual_close = ticker_data.loc[day, "Close"] if day in ticker_data.index else None
+        prev_close = round(prev_close, 2)
 
-        if pd.notna(actual_close):
+        # 당일 종가 가져오기 (결측시 yfinance 대체)
+        actual_close = None
+        if day in ticker_data.index:
+            val = ticker_data.loc[day, "Close"]
+            if pd.notna(val): actual_close = float(val)
+            
+        if actual_close is None:
+            # FDR 데이터가 없으면 yfinance로 조회
+            actual_close = get_closing_price_robust(target_ticker, day)
+
+        if actual_close is not None:
             actual_close = round(actual_close, 2)
         today_close = actual_close
 
         if mode == "안전":
-            # 모드에 따라 목표가 및 보유일 설정
             div_cnt = safe_div_cnt
             target_price = round(prev_close * (1 + safe_buy_threshold), 2)
             sell_target_price = round((actual_close or target_price) * (1 + safe_sell_threshold), 2)
@@ -471,33 +518,26 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
             sell_target_price = round((actual_close or target_price) * (1 + aggr_sell_threshold), 2)
             holding_days = aggr_hold_days
 
-        # 1회 매수에 사용할 금액 및 목표 수량 계산
         daily_buy_amount = round(v_first_amt / div_cnt, 2)
-        ###target_qty = int(daily_buy_amount // target_price) if target_price else 0
-        target_price_safe = float(target_price) if target_price is not None and pd.notna(target_price) else 0.0
-
-        # 2. 가격이 0보다 크고 유효한 값일 경우에만 수량을 계산합니다.
+        
+        # 가격 안전 변환
+        target_price_safe = float(target_price) if target_price is not None and target_price > 0 else 0.0
         if target_price_safe > 0:
-            # 3. 일일 매수 금액을 안전한 가격으로 나누어 수량을 계산합니다.
-            #    일반 나누기(/)를 사용하고 int()로 정수 변환하여 소수점을 버립니다.
             target_qty = int(daily_buy_amount / target_price_safe)
         else:
-            # 4. 가격이 0, None, 또는 NaN이면 수량은 0입니다.
-            target_qty = 0        
+            target_qty = 0
 
         buy_qty = 0
         buy_amt = None
         moc_sell_date = get_future_market_day(day, market_days, holding_days)
         
-        # 초기화: 실제 매도 관련 정보
         actual_sell_date = actual_sell_price = actual_sell_qty = actual_sell_amount = prft_amt = None
         order_type = ""
 
-        # 실제 체결 가능한 경우 (매수 목표가 ≥ 종가)
         if actual_close and target_price >= actual_close and target_qty > 0:
             buy_qty = target_qty
             buy_amt = round(buy_qty * actual_close, 2)
-            # 보유 기간 내 종가가 매도 목표가를 넘긴 경우 매도 성사
+
             hold_range = market_days[(market_days >= day)][:holding_days]
             future_prices = ticker_data.loc[ticker_data.index.isin(hold_range)]
             match = future_prices[future_prices["Close"] >= sell_target_price]
@@ -505,10 +545,20 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
             if not match.empty:
                 actual_sell_date = match.index[0].date()
                 actual_sell_price = round(match.iloc[0]["Close"], 2)
-            elif moc_sell_date and pd.Timestamp(moc_sell_date) in ticker_data.index:
-                # 조건 달성 실패 시 MOC 매도
-                actual_sell_date = moc_sell_date
-                actual_sell_price = round(ticker_data.loc[pd.Timestamp(moc_sell_date)]["Close"], 2)
+            elif moc_sell_date:
+                # MOC 날짜의 데이터 확인 (없으면 yfinance 대체)
+                moc_ts = pd.Timestamp(moc_sell_date)
+                moc_price = None
+                if moc_ts in ticker_data.index:
+                    val = ticker_data.loc[moc_ts]["Close"]
+                    if pd.notna(val): moc_price = float(val)
+                
+                if moc_price is None:
+                    moc_price = get_closing_price_robust(target_ticker, moc_ts)
+
+                if moc_price is not None:
+                    actual_sell_date = moc_sell_date
+                    actual_sell_price = round(moc_price, 2)
 
             if actual_sell_date:
                 if actual_sell_date == moc_sell_date:
@@ -518,13 +568,12 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
             else:
                 order_type = "LOC"
 
-        else: # 매수 미체결 시: 관련 값 모두 초기화
+        else:
             actual_close = None
             sell_target_price = None
             moc_sell_date = None
             prft_amt = 0.0
 
-        # 결과 누적
         result_rows.append({
             "일자": day.date(),
             "종가": today_close,
@@ -536,14 +585,12 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
             "매수가": actual_close,
             "매수량": None,
             "매수금액": None,
-           # "매수수수료": None,
             "매도목표가": sell_target_price,
             "MOC매도일": moc_sell_date,
             "실제매도일": actual_sell_date,
             "실제매도가": actual_sell_price,
             "실제매도량": None,
             "실제매도금액": None,
-           # "매도수수료": None,
             "당일실현": None,
             "매매손익": None,
             "누적매매손익": None,
@@ -554,6 +601,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         })
         day_cnt += 1
 
+    # --- 후처리 로직 (DataFrame 생성 후) ---
     result = pd.DataFrame(result_rows)
     if result.empty:
         return result
@@ -562,43 +610,34 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     prev_profit_sum = 0.0
     daily_realized_profits = {}
 
-    #print("----------------result : ", result)
-
-    num_cols = ["실제매도금액", "매매손익", "당일실현"]
-    for col in num_cols:
-        if col in result.columns:
-            result[col] = pd.to_numeric(result[col], errors="coerce")
-
-    ##for i, row in enumerate(result):
-    # result는 이미 pd.DataFrame(result_rows)로 생성되어 있다고 가정
-    # prev_cash, prev_pmt_update, first_amt, prev_profit_sum, daily_realized_profits, safe_div_cnt, aggr_div_cnt, INVT_RENWL_CYLE, prft_cmpnd_int_rt, loss_cmpnd_int_rt 등은 기존값 유지
-
     for i, idx in enumerate(result.index):
-        # 행(읽기 전용) 가져오기
-        row = result.loc[idx]
+        row = result.loc[idx] # Series 객체
 
-        # 모드에 따라 분할수 결정
+        # 모드 재확인 (안전/공세)
         if row["모드"] == "안전":
             div_cnt = safe_div_cnt
         else:
             div_cnt = aggr_div_cnt
 
-        # 매수예정(금액) 계산
         base_amt = round((prev_pmt_update if i > 0 else first_amt) / div_cnt, 2)
         buy_plan = base_amt if prev_cash is None else min(base_amt, prev_cash)
         result.loc[idx, "매수예정"] = buy_plan
 
-        # 가격/수량 계산
-        tgt_price = row.get("LOC매수목표")
-        buy_price = row.get("매수가")
-        sell_price = row.get("실제매도가")
+        tgt_price = row["LOC매수목표"]
+        buy_price = row["매수가"]
+        sell_price = row["실제매도가"]
 
-        qty = int(buy_plan // tgt_price) if (tgt_price and tgt_price > 0) else None
+        # 안전한 수량 계산 (NaN/0 방지)
+        tgt_price_safe = float(tgt_price) if pd.notna(tgt_price) and tgt_price > 0 else 0.0
+        if tgt_price_safe > 0:
+            qty = int(buy_plan / tgt_price_safe)
+        else:
+            qty = 0
+
         result.loc[idx, "목표량"] = qty
         result.loc[idx, "매수량"] = qty if buy_price else None
         result.loc[idx, "매수금액"] = round(qty * buy_price, 2) if (qty and buy_price) else None
 
-        # 매도 처리(실제매도가가 있으면 매매손익 산정)
         if qty and sell_price:
             real_sell_amt = round(qty * sell_price, 2)
             result.loc[idx, "실제매도량"] = qty
@@ -609,55 +648,44 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
             result.loc[idx, "실제매도금액"] = None
             result.loc[idx, "매매손익"] = None
 
-        # 누적매매손익 업데이트
-        if result.loc[idx, "매매손익"] is not None:
+        if pd.notna(result.loc[idx, "매매손익"]):
             prev_profit_sum += result.loc[idx, "매매손익"]
         result.loc[idx, "누적매매손익"] = prev_profit_sum
 
-        # 동일 거래일의 총 실현(매도)금액 계산 (마스크 사용)
-        trade_day = row.get("일자")
-        if pd.isna(trade_day):
-            sell_amt = 0
-        else:
-            mask_same_day = result["실제매도일"] == trade_day
-            sell_amt = result.loc[mask_same_day, "실제매도금액"].fillna(0).sum()
-
-       # 예수금 업데이트
-        # buy_amt = result.loc[idx, "매수금액"] or 0
-        # prev_cash = prev_cash - buy_amt + sell_amt
-        # result.loc[idx, "예수금"] = prev_cash if row.get("종가") is not None else None
-
+        trade_day = row["일자"]
+        
+        # 예수금 계산
         buy_amt = result.loc[idx, "매수금액"] or 0
-        if result.loc[idx, "매수가"] is not None and buy_amt > 0:
-            prev_cash -= buy_amt  # 실제 체결시에만 예수금 차감
+        if pd.notna(result.loc[idx, "매수가"]) and buy_amt > 0:
+            prev_cash -= buy_amt
 
+        # 당일 매도 금액 합산 (같은 날짜 매도분)
+        mask_same_day = result["실제매도일"] == trade_day
         sell_amt = result.loc[mask_same_day, "실제매도금액"].fillna(0).sum()
-        if not pd.isna(sell_amt) and sell_amt > 0:
+        
+        if sell_amt > 0:
             prev_cash += sell_amt
-        result.loc[idx, "예수금"] = prev_cash if row.get("종가") is not None else None
+            
+        result.loc[idx, "예수금"] = prev_cash if pd.notna(row["종가"]) else None
 
-        # 당일 실현 손익 집계 (캐시 dict 대신 DataFrame으로 계산 가능)
-        # 여기서는 daily_realized_profits dict를 유지하되 key는 trade_day로 통일
+        # 당일 실현 손익
         if trade_day not in daily_realized_profits:
-            mask = result["실제매도일"] == trade_day
-            daily_realized_profits[trade_day] = result.loc[mask, "매매손익"].fillna(0).sum()
+            daily_realized_profits[trade_day] = result.loc[mask_same_day, "매매손익"].fillna(0).sum()
         result.loc[idx, "당일실현"] = daily_realized_profits.get(trade_day) or None
 
-        # 복리금액 계산: 최근 INVT_RENWL_CYLE 행의 '당일실현' 합계 사용
+        # 복리 및 자금갱신
         if (i + 1) % INVT_RENWL_CYLE == 0:
             start_pos = max(0, i - INVT_RENWL_CYLE + 1)
-            window = result.iloc[start_pos:i + 1]
-            bfs = window["당일실현"].fillna(0).sum()
+            window_df = result.iloc[start_pos:i + 1]
+            bfs = window_df["당일실현"].fillna(0).sum()
             rate = prft_cmpnd_int_rt if bfs > 0 else loss_cmpnd_int_rt
             result.loc[idx, "복리금액"] = round(bfs * rate, 2)
         else:
             result.loc[idx, "복리금액"] = None
 
-        # 자금갱신 업데이트
-        prev_pmt_update += result.loc[idx, "복리금액"] or 0
+        prev_pmt_update += (result.loc[idx, "복리금액"] or 0)
         result.loc[idx, "자금갱신"] = prev_pmt_update
 
-    # 함수 최종 반환 시에는 이미 DataFrame이므로 그대로 반환
     return result
 
 
