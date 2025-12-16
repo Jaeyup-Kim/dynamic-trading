@@ -10,6 +10,7 @@ import FinanceDataReader as fdr
 import io
 import json
 import time
+import os
 
 # --- 고유 식별자 설정 ---
 # 시트의 행을 검색하는 기준이 되는 고유 키 컬럼 이름입니다.
@@ -1123,4 +1124,3 @@ if st.button("▶ 전략 실행"):
                             .apply(highlight_order, axis=1).format({"주문가": "{:,.2f}"})
                         ) 
         st.dataframe(styled_df_orders, use_container_width=True)
-
