@@ -145,7 +145,6 @@ def load_user_mappings_from_config(workbook):
         return [{ID_COLUMN_NAME: "default", "UserName": "기본 사용자"}]
 
 
-
 def load_params(display_name, unique_id):
     """Google Sheets에서 특정 사용자의 파라미터를 불러옵니다. 없으면 하드코딩된 기본값을 반환합니다."""
     user_params_ws = get_worksheet("UserParams")
@@ -350,7 +349,8 @@ def get_closing_price_robust(ticker: str, date: datetime) -> float | None:
     try:
         # yfinance는 start 이상 end 미만이므로 하루 뒤를 end로 설정
         start_date_str = date.strftime('%Y-%m-%d')
-        end_date_str = (date + timedelta(days=1)).strftime('%Y-%m-%d')
+        #end_date_str = (date + timedelta(days=1)).strftime('%Y-%m-%d')
+        end_date_str = date.strftime('%Y-%m-%d')
         
         data = yf.download(
             ticker, 
