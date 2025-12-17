@@ -415,12 +415,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     ).index.normalize()
     
     # QQQ 데이터 로드
-    try:
-        qqq = fdr.DataReader("QQQ", qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))        
-    except Exception:
-        # fdr 실패 시 yfinance로 재시도
-        qqq = yf.download("QQQ", start=qqq_start, end=end_dt)
-
+    qqq = fdr.DataReader("QQQ", qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
     qqq.index = pd.to_datetime(qqq.index)
     if end_dt not in qqq.index: # 종료일자가 데이터에 없으면 추가
         qqq.loc[end_dt] = None
@@ -433,34 +428,8 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     mode_by_year_week = weekly_rsi.set_index(["year", "week"])[["모드", "RSI"]]
 
     # 타겟 티커 데이터 로드
-#    try:
-#        #ticker_data = fdr.DataReader(target_ticker, qqq_start, end_dt + pd.Timedelta(days=1))
-#        ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))        
-#        st.write("--- 111데이터 로드 후 ticker_data 일부 (디버깅용) ---")
-#        st.write(ticker_data.tail(10)) # 로드된 데이터의 마지막 10개 행을 화면에 출력        
-#    except Exception:
-#        # fdr 실패 시 yfinance로 재시도
-#        ticker_data = yf.download(target_ticker, start=qqq_start, end=end_dt)
-#        st.write("--- 222데이터 로드 후 ticker_data 일부 (디버깅용) ---")
-#        st.write(ticker_data.tail(10)) # 로드된 데이터의 마지막 10개 행을 화면에 출력           
-
-    ticker_data = yf.download(target_ticker, start=qqq_start, end=end_dt)
-
+    ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
     ticker_data.index = pd.to_datetime(ticker_data.index)
-
-    # --- 디버깅 코드 추가 시작 ---
-    # Streamlit Cloud 로그에서 데이터가 어떻게 보이는지 확인하기 위해 print 문을 사용합니다.
-    st.write("--- 데이터 로드 후 ticker_data 일부 (디버깅용) ---")
-    st.write(ticker_data.tail(10)) # 로드된 데이터의 마지막 10개 행을 화면에 출력
-
-    debug_date_str = f"{end_dt.year}-12-12"
-    debug_date = pd.to_datetime(debug_date_str)
-    
-    if debug_date in ticker_data.index:
-        st.write(f"✅ {debug_date_str} 데이터 찾음:", ticker_data.loc[debug_date])
-    else:
-        st.warning(f"⚠️ {debug_date_str} 데이터를 ticker_data에서 찾을 수 없습니다.")
-    # --- 디버깅 코드 추가 끝 ---
 
     for day in market_days:
         if not (start_dt <= day <= end_dt):
@@ -477,9 +446,9 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
 
         prev_days = ticker_data.index[ticker_data.index < day]
 
-
         if len(prev_days) == 0:
             continue
+        
         prev_close = round(ticker_data.loc[prev_days[-1], "Close"], 2)
 
         # 해당일 종가 (체결 여부 판단용)
