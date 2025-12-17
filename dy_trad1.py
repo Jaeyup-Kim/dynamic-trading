@@ -411,11 +411,16 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     nyse = mcal.get_calendar("NYSE")
     market_days = nyse.schedule(
         start_date=qqq_start.strftime("%Y-%m-%d"),
-        end_date=(end_dt + pd.Timedelta(days=safe_hold_days + 60 + 1)).strftime("%Y-%m-%d") # Added +1 day to ensure end_dt is included
+        end_date=(end_dt + pd.Timedelta(days=safe_hold_days + 60)).strftime("%Y-%m-%d")
     ).index.normalize()
     
     # QQQ 데이터 로드
-    qqq = fdr.DataReader("QQQ", qqq_start.strftime("%Y-%m-%d"), (end_dt + pd.Timedelta(days=1)).strftime("%Y-%m-%d")) # Added +1 day
+    try:
+        qqq = fdr.DataReader("QQQ", qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))        
+    except Exception:
+        # fdr 실패 시 yfinance로 재시도
+        qqq = yf.download("QQQ", start=qqq_start, end=end_dt)
+
     qqq.index = pd.to_datetime(qqq.index)
     if end_dt not in qqq.index: # 종료일자가 데이터에 없으면 추가
         qqq.loc[end_dt] = None
@@ -428,7 +433,13 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     mode_by_year_week = weekly_rsi.set_index(["year", "week"])[["모드", "RSI"]]
 
     # 타겟 티커 데이터 로드
-    ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), (end_dt + pd.Timedelta(days=1)).strftime("%Y-%m-%d")) # Added +1 day
+    try:
+        #ticker_data = fdr.DataReader(target_ticker, qqq_start, end_dt + pd.Timedelta(days=1))
+        ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))        
+    except Exception:
+        # fdr 실패 시 yfinance로 재시도
+        ticker_data = yf.download(target_ticker, start=qqq_start, end=end_dt)
+        
     ticker_data.index = pd.to_datetime(ticker_data.index)
 
     for day in market_days:
