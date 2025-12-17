@@ -436,9 +436,13 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     try:
         #ticker_data = fdr.DataReader(target_ticker, qqq_start, end_dt + pd.Timedelta(days=1))
         ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))        
+        st.write("--- 111데이터 로드 후 ticker_data 일부 (디버깅용) ---")
+        st.write(ticker_data.tail(10)) # 로드된 데이터의 마지막 10개 행을 화면에 출력        
     except Exception:
         # fdr 실패 시 yfinance로 재시도
         ticker_data = yf.download(target_ticker, start=qqq_start, end=end_dt)
+        st.write("--- 222데이터 로드 후 ticker_data 일부 (디버깅용) ---")
+        st.write(ticker_data.tail(10)) # 로드된 데이터의 마지막 10개 행을 화면에 출력           
         
     ticker_data.index = pd.to_datetime(ticker_data.index)
 
@@ -455,7 +459,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     else:
         st.warning(f"⚠️ {debug_date_str} 데이터를 ticker_data에서 찾을 수 없습니다.")
     # --- 디버깅 코드 추가 끝 ---
-    
+
     for day in market_days:
         if not (start_dt <= day <= end_dt):
             continue
@@ -1148,4 +1152,3 @@ if st.button("▶ 전략 실행"):
                             .apply(highlight_order, axis=1).format({"주문가": "{:,.2f}"})
                         ) 
         st.dataframe(styled_df_orders, use_container_width=True)
-
