@@ -442,6 +442,20 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         
     ticker_data.index = pd.to_datetime(ticker_data.index)
 
+    # --- 디버깅 코드 추가 시작 ---
+    # Streamlit Cloud 로그에서 데이터가 어떻게 보이는지 확인하기 위해 print 문을 사용합니다.
+    st.write("--- 데이터 로드 후 ticker_data 일부 (디버깅용) ---")
+    st.write(ticker_data.tail(10)) # 로드된 데이터의 마지막 10개 행을 화면에 출력
+
+    debug_date_str = f"{end_dt.year}-12-12"
+    debug_date = pd.to_datetime(debug_date_str)
+    
+    if debug_date in ticker_data.index:
+        st.write(f"✅ {debug_date_str} 데이터 찾음:", ticker_data.loc[debug_date])
+    else:
+        st.warning(f"⚠️ {debug_date_str} 데이터를 ticker_data에서 찾을 수 없습니다.")
+    # --- 디버깅 코드 추가 끝 ---
+    
     for day in market_days:
         if not (start_dt <= day <= end_dt):
             continue
@@ -1134,3 +1148,4 @@ if st.button("▶ 전략 실행"):
                             .apply(highlight_order, axis=1).format({"주문가": "{:,.2f}"})
                         ) 
         st.dataframe(styled_df_orders, use_container_width=True)
+
