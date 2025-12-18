@@ -457,13 +457,23 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         # 2025-12-12의 actual_close 값을 Streamlit에 출력
         if day.date() == pd.to_datetime("2025-12-12").date():
             st.write(f"디버그1(2025-12-12) actual_close: {actual_close}")
-            
+
         # fdr에서 데이터를 가져오지 못했을 경우 (주로 당일 데이터), yfinance로 재시도
         if pd.isna(actual_close): #and day.date() >= (datetime.now() - timedelta(days=2)).date():
             try:
+                # 2025-12-12의 actual_close 값을 Streamlit에 출력
+                if day.date() == pd.to_datetime("2025-12-12").date():
+                    st.write(f"디버그2(2025-12-12) actual_close: {actual_close}")                
+
                 yf_ticker = yf.Ticker(target_ticker)
                 # yfinance는 start=day, end=day+1일로 조회해야 당일 데이터를 가져옴
                 today_data = yf_ticker.history(start=day.strftime('%Y-%m-%d'), end=(day + timedelta(days=1)).strftime('%Y-%m-%d'))
+
+                # 2025-12-12의 actual_close 값을 Streamlit에 출력
+                if day.date() == pd.to_datetime("2025-12-12").date():
+                    st.write(f"디버그22(2025-12-12) today_data: {today_data}")
+
+
                 if not today_data.empty:
                     actual_close = today_data['Close'].iloc[0]
             except Exception as e:
@@ -471,7 +481,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
 
         # 2025-12-12의 actual_close 값을 Streamlit에 출력
         if day.date() == pd.to_datetime("2025-12-12").date():
-            st.write(f"디버그2(2025-12-12) actual_close: {actual_close}")
+            st.write(f"디버그3(2025-12-12) actual_close: {actual_close}")
 
         if pd.notna(actual_close):
             actual_close = round(actual_close, 2)
