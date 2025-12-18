@@ -509,13 +509,28 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
                 actual_sell_date = moc_sell_date
                 actual_sell_price = round(ticker_data.loc[pd.Timestamp(moc_sell_date)]["Close"], 2)
 
+            # if actual_sell_date:
+            #     if actual_sell_date == moc_sell_date:
+            #         order_type = "MOC"
+            #     else:
+            #         order_type = "LOC"
+            # elif moc_sell_date: # actual_sell_date가 None이지만 moc_sell_date가 존재하면 MOC 매도를 의도한 것으로 간주
+            #     order_type = "MOC"
+            # else:
+            #     order_type = "" # 실제 매도일도, MOC 예정일도 없는 경우
+
             if actual_sell_date:
-                if actual_sell_date == moc_sell_date:
+                if actual_sell_date == moc_sell_date: # 실제매도일이 존재할 경우 실제매도일과 MOC매도일자가 같은 일자이면 MOC 매도
                     order_type = "MOC"
                 else:
-                    order_type = "LOC"
+                    order_type = "LOC"    # 실제매도일과 MOC매도일자가 다르면 LOC 매도        
+            elif end_date == moc_sell_date: 
+                order_type = "MOC"       # 아직 매도가 되지 않아서 실제매도일이 없을 경우에  end_date 와 moc_sell_date가 같은 일자이면 MOC 매도
             else:
-                order_type = "LOC"
+                order_type = "LOC"     # 실제매도일도 없고  end_date 와 moc_sell_date가 다른 일자이면 LOC 매도           
+
+            #print("------- end_date, actual_sell_date, moc_sell_date : ", end_date, actual_sell_date, moc_sell_date)
+            #print("-------- order_type : ", order_type)
 
         else: # 매수 미체결 시: 관련 값 모두 초기화
             actual_close = None
