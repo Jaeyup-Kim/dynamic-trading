@@ -469,7 +469,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
                 yf_ticker = yf.Ticker(target_ticker)
                 # [수정] 데이터 소스 지연을 고려하여 조회 기간을 2일로 늘림 (start=day-1, end=day+1)
                 # 이렇게 하면 당일 데이터가 아직 없어도 전일 데이터를 확실히 가져올 수 있습니다.
-                today_data = yf_ticker.history(start=(day - timedelta(days=1)).strftime('%Y-%m-%d'), end=(day + timedelta(days=1)).strftime('%Y-%m-%d'))
+                today_data = yf_ticker.history(start=(day).strftime('%Y-%m-%d'), end=(day + timedelta(days=1)).strftime('%Y-%m-%d'))
 
                 if not today_data.empty:
                     # [수정] 2025-12-12의 'Close' 가격만 출력하도록 디버그 코드 변경
