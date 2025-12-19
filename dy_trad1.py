@@ -458,40 +458,6 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         if day.date() == pd.to_datetime("2025-12-12").date():
             st.write(f"디버그1(2025-12-12) actual_close: {actual_close}")
 
-        # fdr에서 데이터를 가져오지 못했을 경우(NaN) yfinance로 재시도 (클라우드 환경 데이터 지연 대응)
-        if pd.isna(actual_close):
-            try:
-
-                # 2025-12-12의 actual_close 값을 Streamlit에 출력
-                if day.date() == pd.to_datetime("2025-12-12").date():
-                    st.write(f"디버그2(2025-12-12) actual_close: {actual_close}")
-
-                yf_ticker = yf.Ticker(target_ticker)
-                # [수정] 데이터 소스 지연을 고려하여 조회 기간을 2일로 늘림 (start=day-1, end=day+1)
-                # 이렇게 하면 당일 데이터가 아직 없어도 전일 데이터를 확실히 가져올 수 있습니다.
-                today_data = yf_ticker.history(start=(day).strftime('%Y-%m-%d'), end=(day + timedelta(days=1)).strftime('%Y-%m-%d'))
-
-                if not today_data.empty:
-                    # [수정] 2025-12-12의 'Close' 가격만 출력하도록 디버그 코드 변경
-                    if day.date() == pd.to_datetime("2025-12-12").date():
-                        # today_data['Close']는 종가 데이터(Series)를, .iloc[-1]은 그 중 마지막 값을 의미합니다.
-                        st.write(f"디버그22(2025-12-12) today_data Close price: {today_data['Close'].iloc[-1]}")
-
-                    # 조회된 데이터의 마지막 행('Close' 값)을 사용합니다.
-                    # 이렇게 하면 당일 데이터가 있으면 당일 종가를, 없으면 전일 종가를 사용하게 됩니다.
-                    actual_close = today_data['Close'].iloc[-1]
-                    # yfinance로 가져온 데이터를 ticker_data에 업데이트하여 캐시 활용
-                    ticker_data.loc[day, "Close"] = actual_close 
-
-                    # 2025-12-12의 actual_close 값을 Streamlit에 출력
-                    if day.date() == pd.to_datetime("2025-12-12").date():
-                        st.write(f"디버그3(2025-12-12) actual_close: {actual_close}")
-
-
-            except Exception as e:
-                st.warning(f"{day.date()}의 종가를 yfinance에서 가져오는 중 오류 발생: {e}")
-
-
         # # fdr에서 데이터를 가져오지 못했을 경우 yfinance로 재시도
         # if pd.isna(actual_close): #and day.date() >= (datetime.now() - timedelta(days=2)).date():
         #     try:
