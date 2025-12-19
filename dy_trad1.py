@@ -467,15 +467,18 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
                     st.write(f"디버그2(2025-12-12) actual_close: {actual_close}")
 
                 yf_ticker = yf.Ticker(target_ticker)
-                # yfinance는 start=day, end=day+1일로 조회해야 당일 데이터를 가져옴
-                today_data = yf_ticker.history(start=day.strftime('%Y-%m-%d'), end=(day + timedelta(days=1)).strftime('%Y-%m-%d'))
+                # [수정] 데이터 소스 지연을 고려하여 조회 기간을 2일로 늘림 (start=day-1, end=day+1)
+                # 이렇게 하면 당일 데이터가 아직 없어도 전일 데이터를 확실히 가져올 수 있습니다.
+                today_data = yf_ticker.history(start=(day - timedelta(days=1)).strftime('%Y-%m-%d'), end=(day + timedelta(days=1)).strftime('%Y-%m-%d'))
 
                 # 2025-12-12의 actual_close 값을 Streamlit에 출력
                 if day.date() == pd.to_datetime("2025-12-12").date():
                     st.write(f"디버그22(2025-12-12) today_data: {today_data}")
 
                 if not today_data.empty:
-                    actual_close = today_data['Close'].iloc[0]
+                    # 조회된 데이터의 마지막 행('Close' 값)을 사용합니다.
+                    # 이렇게 하면 당일 데이터가 있으면 당일 종가를, 없으면 전일 종가를 사용하게 됩니다.
+                    actual_close = today_data['Close'].iloc[-1]
                     # yfinance로 가져온 데이터를 ticker_data에 업데이트하여 캐시 활용
                     ticker_data.loc[day, "Close"] = actual_close 
 
