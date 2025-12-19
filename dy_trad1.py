@@ -471,11 +471,12 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
                 # 이렇게 하면 당일 데이터가 아직 없어도 전일 데이터를 확실히 가져올 수 있습니다.
                 today_data = yf_ticker.history(start=(day - timedelta(days=1)).strftime('%Y-%m-%d'), end=(day + timedelta(days=1)).strftime('%Y-%m-%d'))
 
-                # 2025-12-12의 actual_close 값을 Streamlit에 출력
-                if day.date() == pd.to_datetime("2025-12-12").date():
-                    st.write(f"디버그22(2025-12-12) today_data: {today_data}")
-
                 if not today_data.empty:
+                    # [수정] 2025-12-12의 'Close' 가격만 출력하도록 디버그 코드 변경
+                    if day.date() == pd.to_datetime("2025-12-12").date():
+                        # today_data['Close']는 종가 데이터(Series)를, .iloc[-1]은 그 중 마지막 값을 의미합니다.
+                        st.write(f"디버그22(2025-12-12) today_data Close price: {today_data['Close'].iloc[-1]}")
+
                     # 조회된 데이터의 마지막 행('Close' 값)을 사용합니다.
                     # 이렇게 하면 당일 데이터가 있으면 당일 종가를, 없으면 전일 종가를 사용하게 됩니다.
                     actual_close = today_data['Close'].iloc[-1]
