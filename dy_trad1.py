@@ -505,6 +505,15 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         if day.date() == pd.to_datetime("2025-12-15").date():
             st.write(f"디버그1(2025-12-15) actual_close: {actual_close}")
 
+        if day.date() == pd.to_datetime("2025-12-12").date():
+             yf_ticker = yf.Ticker(target_ticker)
+             # yfinance는 start=day, end=day+1일로 조회해야 당일 데이터를 가져옴
+             today_data = yf_ticker.history(start=day.strftime('%Y-%m-%d'), end=(day + timedelta(days=1)).strftime('%Y-%m-%d'))
+             st.write(f"디버그22(2025-12-12) today_data: {today_data}")
+             if not today_data.empty:
+                 actual_close = today_data['Close'].iloc[0]
+                                         
+
         # # fdr에서 데이터를 가져오지 못했을 경우 yfinance로 재시도
         # if pd.isna(actual_close): #and day.date() >= (datetime.now() - timedelta(days=2)).date():
         #     try:
