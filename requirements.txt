@@ -9,3 +9,5 @@ finance-datareader
 XlsxWriter
 gspread
 oauth2client
+pandas-datareader
+requests
