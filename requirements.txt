@@ -5,7 +5,7 @@ pandas_market_calendars
 datetime
 timedelta
 numpy
-FinanceDataReader
+finance-datareader
 XlsxWriter
 gspread
 oauth2client
