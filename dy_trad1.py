@@ -10,7 +10,9 @@ import FinanceDataReader as fdr
 import io
 import json
 import time
+import os
 
+KST = "Asia/Seoul"
 # --- 고유 식별자 설정 ---
 # 시트의 행을 검색하는 기준이 되는 고유 키 컬럼 이름입니다.
 ID_COLUMN_NAME = 'UserID' 
@@ -426,11 +428,11 @@ def calc_balance(row, prev_balance, sell_list):
     )
 
     return round(prev_balance - planned_buy + today_sell_profit, 2)
-
+ 
 # ============================================
 # 최적화 5: 메인 전략 함수 (핵심 최적화)
 # ============================================
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)  # 30분 캐시
 def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, day_cnt, 
                                 safe_hold_days, safe_buy_threshold, safe_sell_threshold, safe_div_cnt, 
                                 aggr_hold_days, aggr_buy_threshold, aggr_sell_threshold, aggr_div_cnt, 
@@ -442,6 +444,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     start_dt, end_dt = pd.to_datetime(start_date), pd.to_datetime(end_date)
     qqq_start = start_dt - pd.Timedelta(weeks=20) # RSI 계산을 위한 20주치 데이터 필요
 
+    # 거래일 캘린더
     nyse = mcal.get_calendar("NYSE")
     market_days = nyse.schedule(
         start_date=qqq_start.strftime("%Y-%m-%d"),
@@ -454,6 +457,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     if end_dt not in qqq.index: # 종료일자가 데이터에 없으면 추가
         qqq.loc[end_dt] = None
 
+    # 주간 RSI 계산 (최적화)
     weekly = get_last_trading_day_each_week(qqq)
     weekly_rsi = calculate_rsi_rolling(weekly).dropna(subset=["RSI"])
     weekly_rsi["모드"] = assign_mode_v2(weekly_rsi["RSI"])
@@ -464,6 +468,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     # 타겟 티커 데이터 로드
     ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
     ticker_data.index = pd.to_datetime(ticker_data.index)
+
 
     for day in market_days:
         if not (start_dt <= day <= end_dt):
@@ -488,9 +493,17 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         # 해당일 종가 (체결 여부 판단용)
         actual_close = ticker_data.loc[day, "Close"] if day in ticker_data.index else None
 
+        if day.date() == pd.to_datetime("2025-12-11").date():
+            st.write(f"디버그1(2025-12-11) actual_close: {actual_close}")
         # 2025-12-12의 actual_close 값을 Streamlit에 출력
         if day.date() == pd.to_datetime("2025-12-12").date():
             st.write(f"디버그1(2025-12-12) actual_close: {actual_close}")
+
+        if day.date() == pd.to_datetime("2025-12-13").date():
+            st.write(f"디버그1(2025-12-13) actual_close: {actual_close}")
+
+        if day.date() == pd.to_datetime("2025-12-15").date():
+            st.write(f"디버그1(2025-12-15) actual_close: {actual_close}")
 
         # # fdr에서 데이터를 가져오지 못했을 경우 yfinance로 재시도
         # if pd.isna(actual_close): #and day.date() >= (datetime.now() - timedelta(days=2)).date():
@@ -736,7 +749,6 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
 
     # 함수 최종 반환 시에는 이미 DataFrame이므로 그대로 반환
     return result
-
 
 
 # ----------상계 처리 표 출력 ----------
