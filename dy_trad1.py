@@ -12,7 +12,7 @@ import json
 import time
 import os
 
-KST = "Asia/Seoul"
+
 # --- 고유 식별자 설정 ---
 # 시트의 행을 검색하는 기준이 되는 고유 키 컬럼 이름입니다.
 ID_COLUMN_NAME = 'UserID' 
@@ -493,54 +493,30 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         # 해당일 종가 (체결 여부 판단용)
         actual_close = ticker_data.loc[day, "Close"] if day in ticker_data.index else None
 
-        if day.date() == pd.to_datetime("2025-12-11").date():
-            st.write(f"디버그1(2025-12-11) actual_close: {actual_close}")
-        # 2025-12-12의 actual_close 값을 Streamlit에 출력
-        if day.date() == pd.to_datetime("2025-12-12").date():
-            st.write(f"디버그1(2025-12-12) actual_close: {actual_close}")
-
-        if day.date() == pd.to_datetime("2025-12-13").date():
-            st.write(f"디버그1(2025-12-13) actual_close: {actual_close}")
-
-        if day.date() == pd.to_datetime("2025-12-15").date():
-            st.write(f"디버그1(2025-12-15) actual_close: {actual_close}")
-
-        if day.date() == pd.to_datetime("2025-12-12").date():
-             yf_ticker = yf.Ticker(target_ticker)
-             # yfinance는 start=day, end=day+1일로 조회해야 당일 데이터를 가져옴
-             today_data = yf_ticker.history(start=day.strftime('%Y-%m-%d'), end=(day + timedelta(days=1)).strftime('%Y-%m-%d'))
-             st.write(f"디버그22(2025-12-12) today_data: {today_data}")
-             if not today_data.empty:
-                 actual_close = today_data['Close'].iloc[0]
-                                         
-
-        # # fdr에서 데이터를 가져오지 못했을 경우 yfinance로 재시도
-        # if pd.isna(actual_close): #and day.date() >= (datetime.now() - timedelta(days=2)).date():
-        #     try:
-        #         # 2025-12-12의 actual_close 값을 Streamlit에 출력
-        #         if day.date() == pd.to_datetime("2025-12-12").date():
-        #             st.write(f"디버그2(2025-12-12) actual_close: {actual_close}")                
-
-        #         yf_ticker = yf.Ticker(target_ticker)
-        #         # yfinance는 start=day, end=day+1일로 조회해야 당일 데이터를 가져옴
-        #         today_data = yf_ticker.history(start=day.strftime('%Y-%m-%d'), end=(day + timedelta(days=1)).strftime('%Y-%m-%d'))
-
-        #         # 2025-12-12의 actual_close 값을 Streamlit에 출력
-        #         if day.date() == pd.to_datetime("2025-12-12").date():
-        #             st.write(f"디버그22(2025-12-12) today_data: {today_data}")
-
-
-        #         if not today_data.empty:
-        #             actual_close = today_data['Close'].iloc[0]
-        #     except Exception as e:
-        #         st.warning(f"{day.date()}의 종가를 yfinance에서 가져오는 중 오류 발생: {e}")
-
+        # if day.date() == pd.to_datetime("2025-12-11").date():
+        #     st.write(f"디버그1(2025-12-11) actual_close: {actual_close}")
         # # 2025-12-12의 actual_close 값을 Streamlit에 출력
         # if day.date() == pd.to_datetime("2025-12-12").date():
-        #     st.write(f"디버그3(2025-12-12) actual_close: {actual_close}")
+        #     st.write(f"디버그1(2025-12-12) actual_close: {actual_close}")
+
+        # if day.date() == pd.to_datetime("2025-12-13").date():
+        #     st.write(f"디버그1(2025-12-13) actual_close: {actual_close}")
+
+        # if day.date() == pd.to_datetime("2025-12-15").date():
+        #     st.write(f"디버그1(2025-12-15) actual_close: {actual_close}")
+
+        # if day.date() == pd.to_datetime("2025-12-12").date():
+        #      yf_ticker = yf.Ticker(target_ticker)
+        #      # yfinance는 start=day, end=day+1일로 조회해야 당일 데이터를 가져옴
+        #      today_data = yf_ticker.history(start=day.strftime('%Y-%m-%d'), end=(day + timedelta(days=1)).strftime('%Y-%m-%d'))
+        #      st.write(f"디버그22(2025-12-12) today_data: {today_data}")
+        #      if not today_data.empty:
+        #          actual_close = today_data['Close'].iloc[0]
+                                         
 
         if pd.notna(actual_close):
             actual_close = round(actual_close, 2)
+
         today_close = actual_close
 
         if mode == "안전":
