@@ -12,6 +12,9 @@ import json
 import time
 import os
 
+# -----------------------------------------------
+# 공격형2 포함 : https://dynamic-trading-choice.streamlit.app/
+# -----------------------------------------------
 
 # --- 고유 식별자 설정 ---
 # 시트의 행을 검색하는 기준이 되는 고유 키 컬럼 이름입니다.
@@ -337,7 +340,7 @@ def assign_mode_v2(rsi_series):
     최적화된 모드 판별 - 기존 함수 교체용
     벡터화로 약 20배 빠름
     """
-    mode = pd.Series('안전', index=range(len(rsi_series)))
+    mode = pd.Series('방어', index=range(len(rsi_series)))
     
     # 배열로 변환하여 빠른 접근
     rsi_arr = rsi_series.values if hasattr(rsi_series, 'values') else rsi_series
@@ -346,20 +349,20 @@ def assign_mode_v2(rsi_series):
         two_weeks_ago = rsi_arr[i - 2]
         one_week_ago = rsi_arr[i - 1]
         
-        # 안전 조건
+        # 방어 조건
         if (
             (two_weeks_ago > 65 and two_weeks_ago > one_week_ago) or
             (40 < two_weeks_ago < 50 and two_weeks_ago > one_week_ago) or
             (one_week_ago < 50 and 50 < two_weeks_ago)
         ):
-            mode.iloc[i] = "안전"
-        # 공세 조건
+            mode.iloc[i] = "방어"
+        # 공격 조건
         elif (
             (two_weeks_ago < 35 and two_weeks_ago < one_week_ago) or
             (50 < two_weeks_ago < 60 and two_weeks_ago < one_week_ago) or
             (one_week_ago > 50 and 50 > two_weeks_ago)
         ):
-            mode.iloc[i] = "공세"
+            mode.iloc[i] = "공격"
         else:
             mode.iloc[i] = mode.iloc[i - 1]
     
@@ -519,7 +522,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
 
         today_close = actual_close
 
-        if mode == "안전":
+        if mode == "방어":
             # 모드에 따라 목표가 및 보유일 설정
             div_cnt = safe_div_cnt
             target_price = round(prev_close * (1 + safe_buy_threshold), 2)
@@ -538,7 +541,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
 
         # 2. 가격이 0보다 크고 유효한 값일 경우에만 수량을 계산합니다.
         if target_price_safe > 0:
-            # 3. 일일 매수 금액을 안전한 가격으로 나누어 수량을 계산합니다.
+            # 3. 일일 매수 금액을 방어한 가격으로 나누어 수량을 계산합니다.
             #    일반 나누기(/)를 사용하고 int()로 정수 변환하여 소수점을 버립니다.
             target_qty = int(daily_buy_amount / target_price_safe)
         else:
@@ -653,7 +656,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         row = result.loc[idx]
 
         # 모드에 따라 분할수 결정
-        if row["모드"] == "안전":
+        if row["모드"] == "방어":
             div_cnt = safe_div_cnt
         else:
             div_cnt = aggr_div_cnt
@@ -1002,9 +1005,9 @@ with col4:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ---------------------------------------
-# 안전모드 파라미터 (생략된 함수들은 오류 방지를 위해 임시 정의)
+# 방어모드 파라미터 (생략된 함수들은 오류 방지를 위해 임시 정의)
 # ---------------------------------------
-st.subheader("💹 안전모드 설정")
+st.subheader("💹 방어모드 설정")
 safe_hold_days = selected_style["safe_hold_days"]
 safe_buy_threshold = selected_style["safe_buy_threshold"] / 100
 safe_sell_threshold = selected_style["safe_sell_threshold"] / 100
@@ -1022,9 +1025,9 @@ with col6:
 
 st.markdown("<br>", unsafe_allow_html=True)
 # ---------------------------------------
-# 공세모드 파라미터
+# 공격모드 파라미터
 # ---------------------------------------
-st.subheader("💹 공세모드 설정")
+st.subheader("💹 공격모드 설정")
 aggr_hold_days = selected_style["aggr_hold_days"]
 aggr_buy_threshold = selected_style["aggr_buy_threshold"] / 100
 aggr_sell_threshold = selected_style["aggr_sell_threshold"] / 100
