@@ -437,8 +437,8 @@ def calc_balance(row, prev_balance, sell_list):
 # ============================================
 @st.cache_data(ttl=1800, show_spinner=False)  # 30분 캐시
 def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, day_cnt, 
-                                safe_hold_days, safe_buy_threshold, safe_sell_threshold, safe_div_cnt, 
-                                aggr_hold_days, aggr_buy_threshold, aggr_sell_threshold, aggr_div_cnt, 
+                                dfns_hold_days, dfns_buy_threshold, dfns_sell_threshold, dfns_div_cnt, 
+                                atck_hold_days, atck_buy_threshold, atck_sell_threshold, atck_div_cnt, 
                                 prft_cmpnd_int_rt, loss_cmpnd_int_rt):
 
     v_first_amt = first_amt
@@ -451,7 +451,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     nyse = mcal.get_calendar("NYSE")
     market_days = nyse.schedule(
         start_date=qqq_start.strftime("%Y-%m-%d"),
-        end_date=(end_dt + pd.Timedelta(days=safe_hold_days + 60)).strftime("%Y-%m-%d")
+        end_date=(end_dt + pd.Timedelta(days=dfns_hold_days + 60)).strftime("%Y-%m-%d")
     ).index.normalize()
     
     # QQQ 데이터 로드
@@ -524,15 +524,15 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
 
         if mode == "방어":
             # 모드에 따라 목표가 및 보유일 설정
-            div_cnt = safe_div_cnt
-            target_price = round(prev_close * (1 + safe_buy_threshold), 2)
-            sell_target_price = round((actual_close or target_price) * (1 + safe_sell_threshold), 2)
-            holding_days = safe_hold_days
+            div_cnt = dfns_div_cnt
+            target_price = round(prev_close * (1 + dfns_buy_threshold), 2)
+            sell_target_price = round((actual_close or target_price) * (1 + dfns_sell_threshold), 2)
+            holding_days = dfns_hold_days
         else:
-            div_cnt = aggr_div_cnt
-            target_price = round(prev_close * (1 + aggr_buy_threshold), 2)
-            sell_target_price = round((actual_close or target_price) * (1 + aggr_sell_threshold), 2)
-            holding_days = aggr_hold_days
+            div_cnt = atck_div_cnt
+            target_price = round(prev_close * (1 + atck_buy_threshold), 2)
+            sell_target_price = round((actual_close or target_price) * (1 + atck_sell_threshold), 2)
+            holding_days = atck_hold_days
 
         # 1회 매수에 사용할 금액 및 목표 수량 계산
         daily_buy_amount = round(v_first_amt / div_cnt, 2)
@@ -649,7 +649,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
 
     ##for i, row in enumerate(result):
     # result는 이미 pd.DataFrame(result_rows)로 생성되어 있다고 가정
-    # prev_cash, prev_pmt_update, first_amt, prev_profit_sum, daily_realized_profits, safe_div_cnt, aggr_div_cnt, INVT_RENWL_CYLE, prft_cmpnd_int_rt, loss_cmpnd_int_rt 등은 기존값 유지
+    # prev_cash, prev_pmt_update, first_amt, prev_profit_sum, daily_realized_profits, dfns_div_cnt, atck_div_cnt, INVT_RENWL_CYLE, prft_cmpnd_int_rt, loss_cmpnd_int_rt 등은 기존값 유지
 
     for i, idx in enumerate(result.index):
         # 행(읽기 전용) 가져오기
@@ -657,9 +657,9 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
 
         # 모드에 따라 분할수 결정
         if row["모드"] == "방어":
-            div_cnt = safe_div_cnt
+            div_cnt = dfns_div_cnt
         else:
-            div_cnt = aggr_div_cnt
+            div_cnt = atck_div_cnt
 
         # 매수예정(금액) 계산
         base_amt = round((prev_pmt_update if i > 0 else first_amt) / div_cnt, 2)
@@ -923,26 +923,26 @@ params = load_params(CURRENT_DISPLAY_NAME, UNIQUE_ID_KEY)
 # ---------------------------------------
 styles = {
     "Default": {
-        "safe_hold_days": 30,
-        "safe_buy_threshold": 3.0,
-        "safe_sell_threshold": 0.2,
-        "safe_div_cnt": 7,
-        "aggr_hold_days": 7,
-        "aggr_buy_threshold": 5.0,
-        "aggr_sell_threshold": 2.5,
-        "aggr_div_cnt": 7,
+        "dfns_hold_days": 30,
+        "dfns_buy_threshold": 3.0,
+        "dfns_sell_threshold": 0.2,
+        "dfns_div_cnt": 7,
+        "atck_hold_days": 7,
+        "atck_buy_threshold": 5.0,
+        "atck_sell_threshold": 2.5,
+        "atck_div_cnt": 7,
         "prft_cmpnd_int_rt": 0.8,   # 이익복리율
         "loss_cmpnd_int_rt": 0.3,   # 손실복리율
     },
     "공격형2": {
-        "safe_hold_days": 35,
-        "safe_buy_threshold": 3.5,
-        "safe_sell_threshold": 1.8,
-        "safe_div_cnt": 7,
-        "aggr_hold_days": 7,
-        "aggr_buy_threshold": 3.6,
-        "aggr_sell_threshold": 5.6,
-        "aggr_div_cnt": 8,
+        "dfns_hold_days": 35,
+        "dfns_buy_threshold": 3.5,
+        "dfns_sell_threshold": 1.8,
+        "dfns_div_cnt": 7,
+        "atck_hold_days": 7,
+        "atck_buy_threshold": 3.6,
+        "atck_sell_threshold": 5.6,
+        "atck_div_cnt": 8,
         "prft_cmpnd_int_rt": 0.72,  # 이익복리율
         "loss_cmpnd_int_rt": 0.213, # 손실복리율
     }
@@ -1008,40 +1008,40 @@ st.markdown("<br>", unsafe_allow_html=True)
 # 방어모드 파라미터 (생략된 함수들은 오류 방지를 위해 임시 정의)
 # ---------------------------------------
 st.subheader("💹 방어모드 설정")
-safe_hold_days = selected_style["safe_hold_days"]
-safe_buy_threshold = selected_style["safe_buy_threshold"] / 100
-safe_sell_threshold = selected_style["safe_sell_threshold"] / 100
-safe_div_cnt = selected_style["safe_div_cnt"]
+dfns_hold_days = selected_style["dfns_hold_days"]
+dfns_buy_threshold = selected_style["dfns_buy_threshold"] / 100
+dfns_sell_threshold = selected_style["dfns_sell_threshold"] / 100
+dfns_div_cnt = selected_style["dfns_div_cnt"]
 
-st.markdown(f"**최대보유일수:** {safe_hold_days}일")
-st.markdown(f"**분할수:** {safe_div_cnt}회")
+st.markdown(f"**최대보유일수:** {dfns_hold_days}일")
+st.markdown(f"**분할수:** {dfns_div_cnt}회")
 
 col5, col6 = st.columns(2)
 with col5:
-    st.markdown(f"**매수조건이율:** {selected_style['safe_buy_threshold']}%")
+    st.markdown(f"**매수조건이율:** {selected_style['dfns_buy_threshold']}%")
 
 with col6:
-    st.markdown(f"**매도조건이율:** {selected_style['safe_sell_threshold']}%")
+    st.markdown(f"**매도조건이율:** {selected_style['dfns_sell_threshold']}%")
 
 st.markdown("<br>", unsafe_allow_html=True)
 # ---------------------------------------
 # 공격모드 파라미터
 # ---------------------------------------
 st.subheader("💹 공격모드 설정")
-aggr_hold_days = selected_style["aggr_hold_days"]
-aggr_buy_threshold = selected_style["aggr_buy_threshold"] / 100
-aggr_sell_threshold = selected_style["aggr_sell_threshold"] / 100
-aggr_div_cnt = selected_style["aggr_div_cnt"]
+atck_hold_days = selected_style["atck_hold_days"]
+atck_buy_threshold = selected_style["atck_buy_threshold"] / 100
+atck_sell_threshold = selected_style["atck_sell_threshold"] / 100
+atck_div_cnt = selected_style["atck_div_cnt"]
 
-st.markdown(f"**최대보유일수:** {aggr_hold_days}일")
-st.markdown(f"**분할수:** {aggr_div_cnt}회")
+st.markdown(f"**최대보유일수:** {atck_hold_days}일")
+st.markdown(f"**분할수:** {atck_div_cnt}회")
 
 col7, col8 = st.columns(2)
 with col7:
-    st.markdown(f"**매수조건이율:** {selected_style['aggr_buy_threshold']}%")
+    st.markdown(f"**매수조건이율:** {selected_style['atck_buy_threshold']}%")
 
 with col8:
-    st.markdown(f"**매도조건이율:** {selected_style['aggr_sell_threshold']}%")
+    st.markdown(f"**매도조건이율:** {selected_style['atck_sell_threshold']}%")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1068,8 +1068,8 @@ if st.button("▶ 전략 실행"):
     # 캐싱된 함수 호출 시 모든 인자 전달
     df_result = get_mode_and_target_prices(
         start_date, end_date, target_ticker, first_amt, 0, 
-        safe_hold_days, safe_buy_threshold, safe_sell_threshold, safe_div_cnt, 
-        aggr_hold_days, aggr_buy_threshold, aggr_sell_threshold, aggr_div_cnt, 
+        dfns_hold_days, dfns_buy_threshold, dfns_sell_threshold, dfns_div_cnt, 
+        atck_hold_days, atck_buy_threshold, atck_sell_threshold, atck_div_cnt, 
         prft_cmpnd_int_rt, loss_cmpnd_int_rt
     )
 
