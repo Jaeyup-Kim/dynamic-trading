@@ -263,7 +263,7 @@ def calculate_rsi(data, window=14):
 def get_week_num(date):
     return int(date.strftime("%Y%U"))  # %U: 주차 (일요일 시작)
 
-# 투자금 갱신 설정
+# 투자금 갱신주기 설정
 INVT_RENWL_CYLE = 10
 # 주문 정보 구조 정의
 Order = namedtuple('Order', ['side', 'type', 'price', 'quantity'])
@@ -931,8 +931,8 @@ styles = {
         "aggr_buy_threshold": 5.0,
         "aggr_sell_threshold": 2.5,
         "aggr_div_cnt": 7,
-        "prft_cmpnd_int_rt": 0.8,
-        "loss_cmpnd_int_rt": 0.3,
+        "prft_cmpnd_int_rt": 0.8,   # 이익복리율
+        "loss_cmpnd_int_rt": 0.3,   # 손실복리율
     },
     "공격형2": {
         "safe_hold_days": 35,
@@ -943,8 +943,8 @@ styles = {
         "aggr_buy_threshold": 3.6,
         "aggr_sell_threshold": 5.6,
         "aggr_div_cnt": 8,
-        "prft_cmpnd_int_rt": 0.72,
-        "loss_cmpnd_int_rt": 0.213,
+        "prft_cmpnd_int_rt": 0.72,  # 이익복리율
+        "loss_cmpnd_int_rt": 0.213, # 손실복리율
     }
 }
 # ---------------------------------------
