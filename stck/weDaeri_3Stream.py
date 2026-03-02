@@ -67,7 +67,7 @@ def run_rebalancing_logic(target_ticker, my_shares, my_cash, analysis_date):
     메인 로직을 실행하고 결과를 딕셔너리로 반환
     """
     with st.spinner("📡 데이터를 분석 중입니다..."):
-        fetch_start_date = "2010-01-01"
+        fetch_start_date = "2010-02-12"
 
         # 주간 데이터 변환
         qqq = get_weekly_data_from_daily("QQQ", fetch_start_date)

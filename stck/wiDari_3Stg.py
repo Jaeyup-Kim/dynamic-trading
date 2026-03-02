@@ -34,7 +34,13 @@ def get_weekly_data_from_daily(ticker, start_date):
 def calculate_growth_trend(prices, dates):
     """
     로그 가격 기반 추세선 계산
+    로그 가격 기반 추세선 계산 (최근 260주)
     """
+    # 최근 260주(약 5년) 데이터만 사용
+    if len(prices) > 260:
+        prices = prices[-260:]
+        dates = dates[-260:]
+
     dates_ordinal = np.array([d.toordinal() for d in dates])
     prices_array = np.array(prices)
 
