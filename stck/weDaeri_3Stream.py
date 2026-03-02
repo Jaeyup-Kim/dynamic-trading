@@ -202,7 +202,7 @@ else:
 
 initial_asset = st.number_input("👉 초기자산 (원금, USD)", min_value=0.0, value=20000.0, step=1000.0)
 
-col1, col2 = st.columns(2)
+col1, col2 = st.columns(2) 
 with col1:
     my_shares = st.number_input(f"👉 보유 {target_ticker} 수량 (주)", min_value=0.0, value=100.0, step=1.0)
 with col2:
