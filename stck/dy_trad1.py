@@ -10,7 +10,7 @@ import FinanceDataReader as fdr
 import io
 import json
 import time
-import os
+import os 
 
 # -----------------------------------------------
 # 공격형2 포함 : https://dynamic-trading-choice.streamlit.app/

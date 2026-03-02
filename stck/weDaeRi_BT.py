@@ -140,7 +140,7 @@ def jy_tqqq_backtest():
                 warning = "보유 주식 부족으로 조정"
 
         elif pnl < 0: # 매수
-            action = "매수"
+            action = "매수" 
             amt_to_buy = abs(pnl) * buy_rate
             max_buy_shares = int(current_cash // curr_tqqq)
             suggested_shares = round(amt_to_buy / curr_tqqq)
