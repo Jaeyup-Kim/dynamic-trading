@@ -682,7 +682,12 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
 
         ##qty = int(buy_plan // tgt_price) if (tgt_price and tgt_price > 0) else None
 
-        tgt_price_val = float(tgt_price) if pd.notna(tgt_price) and not isinstance(tgt_price, pd.Series) else (float(tgt_price.iloc[0]) if isinstance(tgt_price, pd.Series) and len(tgt_price) > 0 else None)
+
+        if isinstance(tgt_price, pd.Series):
+            tgt_price_val = float(tgt_price.iloc[0]) if len(tgt_price) > 0 and pd.notna(tgt_price.iloc[0]) else None
+        else:
+            tgt_price_val = float(tgt_price) if pd.notna(tgt_price) else None
+            
         qty = int(buy_plan // tgt_price_val) if tgt_price_val and tgt_price_val > 0 else None
 
         result.loc[idx, "목표량"] = qty
