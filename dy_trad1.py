@@ -506,7 +506,11 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         if len(prev_days) == 0:
             continue
         
-        prev_close = round(ticker_data.loc[prev_days[-1], "Close"], 2)
+        prev_close_val = ticker_data.loc[prev_days[-1], "Close"]
+        if isinstance(prev_close_val, pd.Series):
+            prev_close = round(float(prev_close_val.iloc[0]), 2)
+        else:
+            prev_close = round(float(prev_close_val), 2)
 
         # 해당일 종가 (체결 여부 판단용)
         if day in ticker_data.index:
@@ -687,7 +691,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
             tgt_price_val = float(tgt_price.iloc[0]) if len(tgt_price) > 0 and pd.notna(tgt_price.iloc[0]) else None
         else:
             tgt_price_val = float(tgt_price) if pd.notna(tgt_price) else None
-            
+
         qty = int(buy_plan // tgt_price_val) if tgt_price_val and tgt_price_val > 0 else None
 
         result.loc[idx, "목표량"] = qty
@@ -1181,6 +1185,7 @@ if st.button("▶ 전략 실행"):
             "변동률": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
             "매수예정": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
             "LOC매수목표": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
+            #"LOC매수목표": lambda x: "{:,.2f}".format(float(x)) if (pd.notnull(x) and not isinstance(x, (pd.Series, pd.DataFrame))) else "",
             "목표량": lambda x: "{:.0f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
             "매수가": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
             "매수량": lambda x: "{:.0f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
@@ -1229,4 +1234,3 @@ if st.button("▶ 전략 실행"):
                             .apply(highlight_order, axis=1).format({"주문가": "{:,.2f}"})
                         ) 
         st.dataframe(styled_df_orders, use_container_width=True)
-        
