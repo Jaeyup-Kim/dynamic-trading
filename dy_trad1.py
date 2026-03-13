@@ -541,7 +541,12 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         # 1회 매수에 사용할 금액 및 목표 수량 계산
         daily_buy_amount = round(v_first_amt / div_cnt, 2)
         ###target_qty = int(daily_buy_amount // target_price) if target_price else 0
-        target_price_safe = float(target_price) if target_price is not None and pd.notna(target_price) else 0.0
+        ##target_price_safe = float(target_price) if target_price is not None and pd.notna(target_price) else 0.0
+
+        if isinstance(target_price, pd.Series):
+            target_price_safe = float(target_price.iloc[0]) if len(target_price) > 0 and pd.notna(target_price.iloc[0]) else 0
+        else:
+            target_price_safe = float(target_price) if target_price is not None else 0
 
         # 2. 가격이 0보다 크고 유효한 값일 경우에만 수량을 계산합니다.
         if target_price_safe > 0:
