@@ -31,25 +31,31 @@ def get_sheets_client():
         if isinstance(creds_json, str):
             creds_dict = json.loads(creds_json)
         else:
-            creds_dict = creds_json
+            creds_dict = dict(creds_json)
         
         # GSheets 클라이언트 초기화
         client = gspread.service_account_from_dict(creds_dict)
         return client
     except Exception as e:
-        st.error("Google Sheets 연결 설정(st.secrets) 오류: google_service_account_key를 확인하세요.")
-        st.stop() # 오류 발생 시 앱 실행 중단
+        st.warning(f"Google Sheets 설정을 찾을 수 없습니다. 로컬 기본값 모드로 실행합니다.\n(상세: {e})")
+        return None
         
 client = get_sheets_client()
-url = st.secrets.get("google_sheet_url")
 
-if not url:
-    st.error("Google Sheet URL이 Secrets에 설정되지 않았습니다. 'google_sheet_url'을 확인하세요.")
-    st.stop()
-    
+try:
+    if client:
+        url = st.secrets.get("google_sheet_url")
+    else:
+        url = None
+except Exception:
+    # secrets.toml 파일이 없거나 읽을 수 없는 경우
+    url = None
+
 @st.cache_resource(ttl=3600)
 def get_spreadsheet(_client, url):
     """스프레드시트 객체를 한 번만 열고 캐시합니다. (클라이언트 인수는 해시에서 제외)"""
+    if _client is None or not url:
+        return None
     try:
         return _client.open_by_url(url)
     except Exception as e:
@@ -60,6 +66,8 @@ workbook = get_spreadsheet(client, url)
 
 def get_worksheet(sheet_name):
     """지정된 워크시트 이름을 사용하여 워크시트 객체를 반환합니다."""
+    if workbook is None:
+        return None
     try:
         # 이미 캐시된 workbook 객체를 사용합니다.
         worksheet = workbook.worksheet(sheet_name)
@@ -158,6 +166,9 @@ def load_params(display_name, unique_id):
     # 기본값 가져오기 (사용자 데이터가 없을 경우 반환할 값)
     default_params = get_hardcoded_default_params()
 
+    if user_params_ws is None:
+        return default_params
+
     try:
         data = user_params_ws.get_all_records()
         df = pd.DataFrame(data)
@@ -192,6 +203,10 @@ def save_params_robust(params, unique_id, display_name):
     try:
         # 1. 시트 연결 및 데이터 준비
         user_params_ws = get_worksheet("UserParams")
+        
+        if user_params_ws is None:
+            st.warning("Google Sheets에 연결되어 있지 않아 설정을 저장할 수 없습니다.")
+            return
         
         # 시트 헤더를 가져와서 업데이트할 값의 순서를 맞춥니다.
         headers = user_params_ws.row_values(1)
@@ -1200,3 +1215,4 @@ if st.button("▶ 전략 실행"):
                             .apply(highlight_order, axis=1).format({"주문가": "{:,.2f}"})
                         ) 
         st.dataframe(styled_df_orders, use_container_width=True)
+        
