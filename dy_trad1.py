@@ -494,31 +494,20 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         prev_close = round(ticker_data.loc[prev_days[-1], "Close"], 2)
 
         # 해당일 종가 (체결 여부 판단용)
-        actual_close = ticker_data.loc[day, "Close"] if day in ticker_data.index else None
+        if day in ticker_data.index:
+            close_value = ticker_data.loc[day, "Close"]
+            # Handle case where indexing returns a Series instead of scalar
+            if isinstance(close_value, pd.Series):
+                actual_close = close_value.iloc[0] if len(close_value) > 0 else None
+            else:
+                actual_close = close_value
+        else:
+            actual_close = None
 
-        # if day.date() == pd.to_datetime("2025-12-11").date():
-        #     st.write(f"디버그1(2025-12-11) actual_close: {actual_close}")
-        # # 2025-12-12의 actual_close 값을 Streamlit에 출력
-        # if day.date() == pd.to_datetime("2025-12-12").date():
-        #     st.write(f"디버그1(2025-12-12) actual_close: {actual_close}")
-
-        # if day.date() == pd.to_datetime("2025-12-13").date():
-        #     st.write(f"디버그1(2025-12-13) actual_close: {actual_close}")
-
-        # if day.date() == pd.to_datetime("2025-12-15").date():
-        #     st.write(f"디버그1(2025-12-15) actual_close: {actual_close}")
-
-        # if day.date() == pd.to_datetime("2025-12-12").date():
-        #      yf_ticker = yf.Ticker(target_ticker)
-        #      # yfinance는 start=day, end=day+1일로 조회해야 당일 데이터를 가져옴
-        #      today_data = yf_ticker.history(start=day.strftime('%Y-%m-%d'), end=(day + timedelta(days=1)).strftime('%Y-%m-%d'))
-        #      st.write(f"디버그22(2025-12-12) today_data: {today_data}")
-        #      if not today_data.empty:
-        #          actual_close = today_data['Close'].iloc[0]
-                                         
-
-        if pd.notna(actual_close):
-            actual_close = round(actual_close, 2)
+        if actual_close is not None and pd.notna(actual_close):
+            actual_close = round(float(actual_close), 2)
+        else:
+            actual_close = None
 
         today_close = actual_close
 
