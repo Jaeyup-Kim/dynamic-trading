@@ -328,9 +328,11 @@ def get_last_trading_day_each_week(data):
 # 최적화 3: RSI 계산 함수
 # ============================================
 def calculate_rsi_rolling(data, period=14):
+
     """
-    최적화된 RSI 계산 - 기존 함수 교체용
-    """
+    RSI(상대강도지수)를 주어진 기간 기준으로 계산
+    기본: 14일
+    """      
     data = data.copy()
     delta = data['Close'].diff()
     gain = delta.where(delta > 0, 0.0)
@@ -346,6 +348,21 @@ def calculate_rsi_rolling(data, period=14):
     
     data['RSI'] = rsi.round(2)
     return data
+
+    # """
+    # RSI(상대강도지수)를 주어진 기간 기준으로 계산
+    # 기본: 14일
+    # """    
+    # data = data.copy()
+    # data['delta'] = data['Close'].diff()
+    # data['gain'] = data['delta'].where(data['delta'] > 0, 0.0)
+    # data['loss'] = -data['delta'].where(data['delta'] < 0, 0.0)
+    # data['avg_gain'] = data['gain'].rolling(window=period).mean()
+    # data['avg_loss'] = data['loss'].rolling(window=period).mean()
+    # data['RS'] = (data['avg_gain'] / data['avg_loss']).round(3)
+    # data['RSI'] = ((data['RS'] / (1 + data['RS'])) * 100).round(2)
+    
+    # return data
 
 # ============================================
 # 최적화 4: 모드 판별 함수 (벡터화)
@@ -364,6 +381,8 @@ def assign_mode_v2(rsi_series):
         two_weeks_ago = rsi_arr[i - 2]
         one_week_ago = rsi_arr[i - 1]
         
+        ##print("------ two : ", two_weeks_ago, "------- one : ", one_week_ago)
+
         # 방어 조건
         if (
             (two_weeks_ago > 65 and two_weeks_ago > one_week_ago) or
@@ -478,6 +497,9 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     # 주간 RSI 계산 (최적화)
     weekly = get_last_trading_day_each_week(qqq)
     weekly_rsi = calculate_rsi_rolling(weekly).dropna(subset=["RSI"])
+
+    ###print("---------- weekly_rsi : \n", weekly_rsi)
+
     weekly_rsi["모드"] = assign_mode_v2(weekly_rsi["RSI"])
     weekly_rsi["year"] = weekly_rsi.index.year
     weekly_rsi["week"] = weekly_rsi.index.map(get_weeknum_google_style)
@@ -498,6 +520,9 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
 
         # 해당 날짜의 연도 및 주차 정보로 모드(RSI 기반) 조회
         mode_info = mode_by_year_week.loc[(year, week)]
+        if isinstance(mode_info, pd.DataFrame):
+            mode_info = mode_info.iloc[0]
+
         mode = mode_info["모드"]
         rsi = round(mode_info["RSI"], 2)
 
@@ -1234,3 +1259,4 @@ if st.button("▶ 전략 실행"):
                             .apply(highlight_order, axis=1).format({"주문가": "{:,.2f}"})
                         ) 
         st.dataframe(styled_df_orders, use_container_width=True)
+        
