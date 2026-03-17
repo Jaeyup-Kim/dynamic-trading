@@ -56,29 +56,37 @@ Order = namedtuple('Order', ['side', 'type', 'price', 'quantity'])
 # ---------- 유틸 함수들 ----------
 def get_weeknum_google_style(date):
     """
-    Google Calendar 스타일의 주차(Week Number) 계산
-    기준: 1월 1일부터 시작, 요일 보정 포함
-    """    
-    jan1 = pd.Timestamp(year=date.year, month=1, day=1).tz_localize(None)
-    date = pd.Timestamp(date).tz_localize(None)
-    weekday_jan1 = jan1.weekday()
-    delta_days = (date - jan1).days
-    return ((delta_days + weekday_jan1) // 7) + 1
+    절대 주차 계산 (년도와 무관하게 연속적인 주차 번호 반환)
+    기준일: 2000-01-02 (일요일)
+    """
+    base_date = pd.Timestamp("2000-01-02")
+
+    if isinstance(date, pd.Series):
+        d = pd.to_datetime(date)
+        if d.dt.tz is not None:
+            d = d.dt.tz_localize(None)
+        return (d - base_date).dt.days // 7
+    elif isinstance(date, pd.DatetimeIndex):
+        if date.tz is not None:
+            date = date.tz_localize(None)
+        return (date - base_date).days // 7
+    else:
+        ts = pd.Timestamp(date)
+        return (ts.tz_localize(None) - base_date).days // 7
 
 def get_last_trading_day_each_week(data):
     """
-    각 주차별로 가장 마지막 거래일 데이터를 추출 (주간 RSI 계산용)
-    """    
+    최적화된 주간 마지막 거래일 추출 - 절대 주차 사용
+    """
     data = data.copy()
-    #print("---data :", data)    
-    data['week'] = data.index.to_series().apply(get_weeknum_google_style)
-    data['year'] = data.index.to_series().dt.year
-    data['weekday'] = data.index.to_series().dt.weekday
-    last_day = data.groupby(['year', 'week'])[['weekday']].idxmax()
-    #print("---last_day :", last_day)    
-    #print("---data['weekday']  :", data['weekday'] )
-    #print("---end last_day ")    
-    return data.loc[last_day['weekday']]
+    
+    # 절대 주차 계산
+    data['week'] = get_weeknum_google_style(data.index)
+    data['weekday'] = data.index.weekday
+    
+    # groupby 최적화 (절대 주차 사용하므로 year 그룹핑 불필요)
+    last_day = data.groupby(['week'])['weekday'].idxmax()
+    return data.loc[last_day]
 
 def calculate_rsi_rolling(data, period=14):
     """
@@ -237,9 +245,8 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     weekly = get_last_trading_day_each_week(qqq)
     weekly_rsi = calculate_rsi_rolling(weekly).dropna(subset=["RSI"])
     weekly_rsi["모드"] = assign_mode_v2(weekly_rsi["RSI"])
-    weekly_rsi["year"] = weekly_rsi.index.year
-    weekly_rsi["week"] = weekly_rsi.index.map(get_weeknum_google_style)
-    mode_by_year_week = weekly_rsi.set_index(["year", "week"])[["모드", "RSI"]]
+    weekly_rsi["week"] = get_weeknum_google_style(weekly_rsi.index)
+    mode_by_year_week = weekly_rsi.set_index("week")[["모드", "RSI"]]
 
     ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
     ticker_data.index = pd.to_datetime(ticker_data.index)
@@ -255,11 +262,13 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
 
         daily_buy_amount = round(v_first_amt / div_cnt, 2)
 
-        year, week = day.year, get_weeknum_google_style(day)
-        if (year, week) not in mode_by_year_week.index:
+        week = get_weeknum_google_style(day)
+        if week not in mode_by_year_week.index:
             continue
 
-        mode_info = mode_by_year_week.loc[(year, week)]
+        mode_info = mode_by_year_week.loc[week]
+        if isinstance(mode_info, pd.DataFrame):
+            mode_info = mode_info.iloc[0]
         mode = mode_info["모드"]
         rsi = round(mode_info["RSI"], 2)
 
