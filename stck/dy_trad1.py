@@ -14,6 +14,7 @@ import os
 
 # -----------------------------------------------
 # 공격형2 포함 : https://dynamic-trading-choice.streamlit.app/
+# yfinance 를 이용해서 종가 취득
 # -----------------------------------------------
 
 # --- 고유 식별자 설정 ---
@@ -31,25 +32,31 @@ def get_sheets_client():
         if isinstance(creds_json, str):
             creds_dict = json.loads(creds_json)
         else:
-            creds_dict = creds_json
+            creds_dict = dict(creds_json)
         
         # GSheets 클라이언트 초기화
         client = gspread.service_account_from_dict(creds_dict)
         return client
     except Exception as e:
-        st.error("Google Sheets 연결 설정(st.secrets) 오류: google_service_account_key를 확인하세요.")
-        st.stop() # 오류 발생 시 앱 실행 중단
+        st.warning(f"Google Sheets 설정을 찾을 수 없습니다. 로컬 기본값 모드로 실행합니다.\n(상세: {e})")
+        return None
         
 client = get_sheets_client()
-url = st.secrets.get("google_sheet_url")
 
-if not url:
-    st.error("Google Sheet URL이 Secrets에 설정되지 않았습니다. 'google_sheet_url'을 확인하세요.")
-    st.stop()
-    
+try:
+    if client:
+        url = st.secrets.get("google_sheet_url")
+    else:
+        url = None
+except Exception:
+    # secrets.toml 파일이 없거나 읽을 수 없는 경우
+    url = None
+
 @st.cache_resource(ttl=3600)
 def get_spreadsheet(_client, url):
     """스프레드시트 객체를 한 번만 열고 캐시합니다. (클라이언트 인수는 해시에서 제외)"""
+    if _client is None or not url:
+        return None
     try:
         return _client.open_by_url(url)
     except Exception as e:
@@ -60,6 +67,8 @@ workbook = get_spreadsheet(client, url)
 
 def get_worksheet(sheet_name):
     """지정된 워크시트 이름을 사용하여 워크시트 객체를 반환합니다."""
+    if workbook is None:
+        return None
     try:
         # 이미 캐시된 workbook 객체를 사용합니다.
         worksheet = workbook.worksheet(sheet_name)
@@ -158,6 +167,9 @@ def load_params(display_name, unique_id):
     # 기본값 가져오기 (사용자 데이터가 없을 경우 반환할 값)
     default_params = get_hardcoded_default_params()
 
+    if user_params_ws is None:
+        return default_params
+
     try:
         data = user_params_ws.get_all_records()
         df = pd.DataFrame(data)
@@ -192,6 +204,10 @@ def save_params_robust(params, unique_id, display_name):
     try:
         # 1. 시트 연결 및 데이터 준비
         user_params_ws = get_worksheet("UserParams")
+        
+        if user_params_ws is None:
+            st.warning("Google Sheets에 연결되어 있지 않아 설정을 저장할 수 없습니다.")
+            return
         
         # 시트 헤더를 가져와서 업데이트할 값의 순서를 맞춥니다.
         headers = user_params_ws.row_values(1)
@@ -273,73 +289,87 @@ Order = namedtuple('Order', ['side', 'type', 'price', 'quantity'])
 # ============================================
 def get_weeknum_google_style(date):
     """
-    최적화된 주차 계산 - 기존 함수 교체용
-    Series도 처리 가능하도록 개선
+    절대 주차 계산 (년도와 무관하게 연속적인 주차 번호 반환)
+    기준일: 2000-01-02 (일요일)
     """
+    base_date = pd.Timestamp("2000-01-02")
+
     if isinstance(date, pd.Series):
-        # Series인 경우 벡터화 처리
-        jan1 = pd.to_datetime(date.dt.year.astype(str) + '-01-01')
-        date_ts = pd.to_datetime(date)
-        weekday_jan1 = jan1.dt.weekday
-        delta_days = (date_ts - jan1).dt.days
-        return ((delta_days + weekday_jan1) // 7) + 1
+        d = pd.to_datetime(date)
+        if d.dt.tz is not None:
+            d = d.dt.tz_localize(None)
+        return (d - base_date).dt.days // 7
+    elif isinstance(date, pd.DatetimeIndex):
+        if date.tz is not None:
+            date = date.tz_localize(None)
+        return (date - base_date).days // 7
     else:
-        # 단일 값인 경우 기존 로직
-        jan1 = pd.Timestamp(year=date.year, month=1, day=1).tz_localize(None)
-        date = pd.Timestamp(date).tz_localize(None)
-        weekday_jan1 = jan1.weekday()
-        delta_days = (date - jan1).days
-        return ((delta_days + weekday_jan1) // 7) + 1
+        ts = pd.Timestamp(date)
+        return (ts.tz_localize(None) - base_date).days // 7
 
 # ============================================
 # 최적화 2: 주간 마지막 거래일 추출
 # ============================================
 def get_last_trading_day_each_week(data):
+
     """
-    최적화된 주간 마지막 거래일 추출 - 기존 함수 교체용
-    벡터화 연산으로 약 5배 빠름
+    최적화된 주간 마지막 거래일 추출 - 절대 주차 사용
     """
     data = data.copy()
-    # 벡터화된 주차 계산
-    data['week'] = get_weeknum_google_style(data.index.to_series())
-    data['year'] = data.index.year
+    
+    # 절대 주차 계산
+    data['week'] = get_weeknum_google_style(data.index)
     data['weekday'] = data.index.weekday
     
-    # groupby 최적화
-    last_day = data.groupby(['year', 'week'])['weekday'].idxmax()
+    # groupby 최적화 (절대 주차 사용하므로 year 그룹핑 불필요)
+    last_day = data.groupby(['week'])['weekday'].idxmax()
     return data.loc[last_day]
+
 
 # ============================================
 # 최적화 3: RSI 계산 함수
 # ============================================
 def calculate_rsi_rolling(data, period=14):
+
     """
-    최적화된 RSI 계산 - 기존 함수 교체용
-    """
+    RSI(상대강도지수)를 주어진 기간 기준으로 계산
+    기본: 14일
+    """    
+
+    # data = data.copy()
+    # delta = data['Close'].diff()
+    # gain = delta.where(delta > 0, 0.0)
+    # loss = -delta.where(delta < 0, 0.0)
+    
+    # # rolling 대신 ewm 사용 (더 빠름)
+    # avg_gain = gain.rolling(window=period, min_periods=period).mean()
+    # avg_loss = loss.rolling(window=period, min_periods=period).mean()
+    
+    # # 0으로 나누기 방지
+    # rs = avg_gain / avg_loss.replace(0, np.nan)
+    # rsi = 100 - (100 / (1 + rs))
+    
+    # data['RSI'] = rsi.round(2)
+
+    # #print("-----------data : \n", data)
+    # return data
+
     data = data.copy()
-    delta = data['Close'].diff()
-    gain = delta.where(delta > 0, 0.0)
-    loss = -delta.where(delta < 0, 0.0)
+    data['delta'] = data['Close'].diff()
+    data['gain'] = data['delta'].where(data['delta'] > 0, 0.0)
+    data['loss'] = -data['delta'].where(data['delta'] < 0, 0.0)
+    data['avg_gain'] = data['gain'].rolling(window=period).mean()
+    data['avg_loss'] = data['loss'].rolling(window=period).mean()
+    data['RS'] = (data['avg_gain'] / data['avg_loss']).round(3)
+    data['RSI'] = ((data['RS'] / (1 + data['RS'])) * 100).round(2)
     
-    # rolling 대신 ewm 사용 (더 빠름)
-    avg_gain = gain.rolling(window=period, min_periods=period).mean()
-    avg_loss = loss.rolling(window=period, min_periods=period).mean()
-    
-    # 0으로 나누기 방지
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    rsi = 100 - (100 / (1 + rs))
-    
-    data['RSI'] = rsi.round(2)
     return data
 
 # ============================================
 # 최적화 4: 모드 판별 함수 (벡터화)
 # ============================================
 def assign_mode_v2(rsi_series):
-    """
-    최적화된 모드 판별 - 기존 함수 교체용
-    벡터화로 약 20배 빠름
-    """
+ 
     mode = pd.Series('방어', index=range(len(rsi_series)))
     
     # 배열로 변환하여 빠른 접근
@@ -349,6 +379,8 @@ def assign_mode_v2(rsi_series):
         two_weeks_ago = rsi_arr[i - 2]
         one_week_ago = rsi_arr[i - 1]
         
+        ##print("------ two : ", two_weeks_ago, "------- one : ", one_week_ago)
+
         # 방어 조건
         if (
             (two_weeks_ago > 65 and two_weeks_ago > one_week_ago) or
@@ -445,7 +477,9 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     result_rows = []
 
     start_dt, end_dt = pd.to_datetime(start_date), pd.to_datetime(end_date)
-    qqq_start = start_dt - pd.Timedelta(weeks=20) # RSI 계산을 위한 20주치 데이터 필요
+
+    yf_end_dt = (end_dt + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    qqq_start = start_dt - pd.Timedelta(weeks=25) # RSI 계산을 위한 25주치 데이터 필요
 
     # 거래일 캘린더
     nyse = mcal.get_calendar("NYSE")
@@ -455,34 +489,68 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     ).index.normalize()
     
     # QQQ 데이터 로드
-    qqq = fdr.DataReader("QQQ", qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
-    qqq.index = pd.to_datetime(qqq.index)
-    if end_dt not in qqq.index: # 종료일자가 데이터에 없으면 추가
-        qqq.loc[end_dt] = None
+    ###qqq = fdr.DataReader("QQQ", qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
+
+    # RSI 계산을 위한 QQQ 데이터 로드 (yfinance 사용)
+    qqq = yf.download("QQQ", start=qqq_start.strftime("%Y-%m-%d"), end=yf_end_dt, auto_adjust=False, back_adjust=False, progress=False)
+
+    print(qqq.head())
+
+    print("**********************************************\n")
+
+    # MultiIndex 대응 (yfinance 최신 버전 이슈 방지)
+    if isinstance(qqq.columns, pd.MultiIndex):
+        qqq.columns = qqq.columns.get_level_values(0)
+
+    qqq.index = pd.to_datetime(qqq.index).tz_localize(None) # 시간대 정보 제거
+    #qqq = yf.Ticker("QQQ").history(start=qqq_start.strftime("%Y-%m-%d"), end=end_dt.strftime("%Y-%m-%d"))
+    ##qqq.index = pd.to_datetime(qqq.index)
+    if end_dt not in qqq.index: 
+        # 종료일자가 데이터에 없으면 빈 행 생성 (추후 로직 유지용)
+        qqq.loc[end_dt] = np.nan
+
 
     # 주간 RSI 계산 (최적화)
     weekly = get_last_trading_day_each_week(qqq)
+    ##print("---------- weekly : \n", weekly)    
     weekly_rsi = calculate_rsi_rolling(weekly).dropna(subset=["RSI"])
+
+    ##print("---------- weekly_rsi : \n", weekly_rsi)
+
     weekly_rsi["모드"] = assign_mode_v2(weekly_rsi["RSI"])
-    weekly_rsi["year"] = weekly_rsi.index.year
-    weekly_rsi["week"] = weekly_rsi.index.map(get_weeknum_google_style)
-    mode_by_year_week = weekly_rsi.set_index(["year", "week"])[["모드", "RSI"]]
+    weekly_rsi["week"] = get_weeknum_google_style(weekly_rsi.index)
+    mode_by_year_week = weekly_rsi.set_index("week")[["모드", "RSI"]]
 
     # 타겟 티커 데이터 로드
-    ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
-    ticker_data.index = pd.to_datetime(ticker_data.index)
+    ##ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
 
+    # 타겟 티커 데이터 로드 (yfinance 사용) ---
+    ticker_data = yf.download(target_ticker, start=qqq_start.strftime("%Y-%m-%d"), end=yf_end_dt, auto_adjust=False, back_adjust=False,progress=False)
+
+    print(ticker_data.head())
+
+    ##print("**********************************************\n")
+
+    # MultiIndex 대응
+    if isinstance(ticker_data.columns, pd.MultiIndex):
+        ticker_data.columns = ticker_data.columns.get_level_values(0)
+
+    ##ticker_data.index = pd.to_datetime(ticker_data.index)
+    ticker_data.index = pd.to_datetime(ticker_data.index).tz_localize(None)    
 
     for day in market_days:
         if not (start_dt <= day <= end_dt):
             continue
 
-        year, week = day.year, get_weeknum_google_style(day)
-        if (year, week) not in mode_by_year_week.index:
+        week = get_weeknum_google_style(day)
+        if week not in mode_by_year_week.index:
             continue
 
         # 해당 날짜의 연도 및 주차 정보로 모드(RSI 기반) 조회
-        mode_info = mode_by_year_week.loc[(year, week)]
+        mode_info = mode_by_year_week.loc[week]
+        if isinstance(mode_info, pd.DataFrame):
+            mode_info = mode_info.iloc[0]
+
         mode = mode_info["모드"]
         rsi = round(mode_info["RSI"], 2)
 
@@ -491,34 +559,27 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         if len(prev_days) == 0:
             continue
         
-        prev_close = round(ticker_data.loc[prev_days[-1], "Close"], 2)
+        prev_close_val = ticker_data.loc[prev_days[-1], "Close"]
+        if isinstance(prev_close_val, pd.Series):
+            prev_close = round(float(prev_close_val.iloc[0]), 2)
+        else:
+            prev_close = round(float(prev_close_val), 2)
 
         # 해당일 종가 (체결 여부 판단용)
-        actual_close = ticker_data.loc[day, "Close"] if day in ticker_data.index else None
+        if day in ticker_data.index:
+            close_value = ticker_data.loc[day, "Close"]
+            # Handle case where indexing returns a Series instead of scalar
+            if isinstance(close_value, pd.Series):
+                actual_close = close_value.iloc[0] if len(close_value) > 0 else None
+            else:
+                actual_close = close_value
+        else:
+            actual_close = None
 
-        # if day.date() == pd.to_datetime("2025-12-11").date():
-        #     st.write(f"디버그1(2025-12-11) actual_close: {actual_close}")
-        # # 2025-12-12의 actual_close 값을 Streamlit에 출력
-        # if day.date() == pd.to_datetime("2025-12-12").date():
-        #     st.write(f"디버그1(2025-12-12) actual_close: {actual_close}")
-
-        # if day.date() == pd.to_datetime("2025-12-13").date():
-        #     st.write(f"디버그1(2025-12-13) actual_close: {actual_close}")
-
-        # if day.date() == pd.to_datetime("2025-12-15").date():
-        #     st.write(f"디버그1(2025-12-15) actual_close: {actual_close}")
-
-        # if day.date() == pd.to_datetime("2025-12-12").date():
-        #      yf_ticker = yf.Ticker(target_ticker)
-        #      # yfinance는 start=day, end=day+1일로 조회해야 당일 데이터를 가져옴
-        #      today_data = yf_ticker.history(start=day.strftime('%Y-%m-%d'), end=(day + timedelta(days=1)).strftime('%Y-%m-%d'))
-        #      st.write(f"디버그22(2025-12-12) today_data: {today_data}")
-        #      if not today_data.empty:
-        #          actual_close = today_data['Close'].iloc[0]
-                                         
-
-        if pd.notna(actual_close):
-            actual_close = round(actual_close, 2)
+        if actual_close is not None and pd.notna(actual_close):
+            actual_close = round(float(actual_close), 2)
+        else:
+            actual_close = None
 
         today_close = actual_close
 
@@ -537,7 +598,12 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         # 1회 매수에 사용할 금액 및 목표 수량 계산
         daily_buy_amount = round(v_first_amt / div_cnt, 2)
         ###target_qty = int(daily_buy_amount // target_price) if target_price else 0
-        target_price_safe = float(target_price) if target_price is not None and pd.notna(target_price) else 0.0
+        ##target_price_safe = float(target_price) if target_price is not None and pd.notna(target_price) else 0.0
+
+        if isinstance(target_price, pd.Series):
+            target_price_safe = float(target_price.iloc[0]) if len(target_price) > 0 and pd.notna(target_price.iloc[0]) else 0
+        else:
+            target_price_safe = float(target_price) if target_price is not None else 0
 
         # 2. 가격이 0보다 크고 유효한 값일 경우에만 수량을 계산합니다.
         if target_price_safe > 0:
@@ -567,11 +633,17 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
 
             if not match.empty:
                 actual_sell_date = match.index[0].date()
-                actual_sell_price = round(match.iloc[0]["Close"], 2)
+                val = match.iloc[0]["Close"]
+                if isinstance(val, pd.Series):
+                    val = val.iloc[0]
+                actual_sell_price = round(float(val), 2)
             elif moc_sell_date and pd.Timestamp(moc_sell_date) in ticker_data.index:
                 # 조건 달성 실패 시 MOC 매도
                 actual_sell_date = moc_sell_date
-                actual_sell_price = round(ticker_data.loc[pd.Timestamp(moc_sell_date)]["Close"], 2)
+                val = ticker_data.loc[pd.Timestamp(moc_sell_date)]["Close"]
+                if isinstance(val, pd.Series):
+                    val = val.iloc[0]
+                actual_sell_price = round(float(val), 2)
 
             # if actual_sell_date:
             #     if actual_sell_date == moc_sell_date:
@@ -671,7 +743,22 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         buy_price = row.get("매수가")
         sell_price = row.get("실제매도가")
 
-        qty = int(buy_plan // tgt_price) if (tgt_price and tgt_price > 0) else None
+        ##qty = int(buy_plan // tgt_price) if (tgt_price and tgt_price > 0) else None
+
+
+        if isinstance(tgt_price, pd.Series):
+            tgt_price_val = float(tgt_price.iloc[0]) if len(tgt_price) > 0 and pd.notna(tgt_price.iloc[0]) else None
+        else:
+            tgt_price_val = float(tgt_price) if pd.notna(tgt_price) else None
+
+        if isinstance(buy_price, pd.Series):
+            buy_price = float(buy_price.iloc[0]) if not buy_price.empty else None
+
+        if isinstance(sell_price, pd.Series):
+            sell_price = float(sell_price.iloc[0]) if not sell_price.empty else None
+
+        qty = int(buy_plan // tgt_price_val) if tgt_price_val and tgt_price_val > 0 else None
+
         result.loc[idx, "목표량"] = qty
         result.loc[idx, "매수량"] = qty if buy_price else None
         result.loc[idx, "매수금액"] = round(qty * buy_price, 2) if (qty and buy_price) else None
@@ -1163,6 +1250,7 @@ if st.button("▶ 전략 실행"):
             "변동률": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
             "매수예정": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
             "LOC매수목표": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
+            #"LOC매수목표": lambda x: "{:,.2f}".format(float(x)) if (pd.notnull(x) and not isinstance(x, (pd.Series, pd.DataFrame))) else "",
             "목표량": lambda x: "{:.0f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
             "매수가": lambda x: "{:,.2f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
             "매수량": lambda x: "{:.0f}".format(float(x)) if pd.notnull(x) and str(x).strip() != "" else "",
@@ -1211,3 +1299,5 @@ if st.button("▶ 전략 실행"):
                             .apply(highlight_order, axis=1).format({"주문가": "{:,.2f}"})
                         ) 
         st.dataframe(styled_df_orders, use_container_width=True)
+
+        
