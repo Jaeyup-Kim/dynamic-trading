@@ -510,6 +510,10 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
     ticker_data.index = pd.to_datetime(ticker_data.index)
     ticker_data['Close'] = ticker_data['Close'].round(2)
+    
+    ##print(qqq.tail())
+    ##print("**********************************************\n")
+    ##print(ticker_data.tail())
 
     for day in market_days:
         if not (start_dt <= day <= end_dt):
@@ -602,6 +606,10 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
             # 보유 기간 내 종가가 매도 목표가를 넘긴 경우 매도 성사
             hold_range = market_days[(market_days >= day)][:holding_days]
             future_prices = ticker_data.loc[ticker_data.index.isin(hold_range)]
+
+            ##print("----sell_target_price : ", sell_target_price)
+            ##print("----future_prices : \n", future_prices)
+
             match = future_prices[future_prices["Close"] >= sell_target_price]
 
             if not match.empty:
