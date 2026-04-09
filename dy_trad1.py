@@ -14,6 +14,7 @@ import os
 
 # -----------------------------------------------
 # 공격형2 포함 : https://dynamic-trading-choice.streamlit.app/
+# yfinance 를 이용해서 종가 취득
 # -----------------------------------------------
 
 # --- 고유 식별자 설정 ---
@@ -284,45 +285,46 @@ INVT_RENWL_CYLE = 10
 Order = namedtuple('Order', ['side', 'type', 'price', 'quantity'])
 
 # ============================================
-# 최적화 1: 주차 계산 함수 교체
+# 최적화 1: 주차 계산 함수
 # ============================================
 def get_weeknum_google_style(date):
     """
-    최적화된 주차 계산 - 기존 함수 교체용
-    Series도 처리 가능하도록 개선
+    절대 주차 계산 (년도와 무관하게 연속적인 주차 번호 반환)
+    기준일: 2000-01-02 (일요일)
     """
+    base_date = pd.Timestamp("2000-01-02")
+
     if isinstance(date, pd.Series):
-        # Series인 경우 벡터화 처리
-        jan1 = pd.to_datetime(date.dt.year.astype(str) + '-01-01')
-        date_ts = pd.to_datetime(date)
-        weekday_jan1 = jan1.dt.weekday
-        delta_days = (date_ts - jan1).dt.days
-        return ((delta_days + weekday_jan1) // 7) + 1
+        d = pd.to_datetime(date)
+        if d.dt.tz is not None:
+            d = d.dt.tz_localize(None)
+        return (d - base_date).dt.days // 7
+    elif isinstance(date, pd.DatetimeIndex):
+        if date.tz is not None:
+            date = date.tz_localize(None)
+        return (date - base_date).days // 7
     else:
-        # 단일 값인 경우 기존 로직
-        jan1 = pd.Timestamp(year=date.year, month=1, day=1).tz_localize(None)
-        date = pd.Timestamp(date).tz_localize(None)
-        weekday_jan1 = jan1.weekday()
-        delta_days = (date - jan1).days
-        return ((delta_days + weekday_jan1) // 7) + 1
+        ts = pd.Timestamp(date)
+        return (ts.tz_localize(None) - base_date).days // 7
 
 # ============================================
 # 최적화 2: 주간 마지막 거래일 추출
 # ============================================
 def get_last_trading_day_each_week(data):
+
     """
-    최적화된 주간 마지막 거래일 추출 - 기존 함수 교체용
-    벡터화 연산으로 약 5배 빠름
+    최적화된 주간 마지막 거래일 추출 - 절대 주차 사용
     """
     data = data.copy()
-    # 벡터화된 주차 계산
-    data['week'] = get_weeknum_google_style(data.index.to_series())
-    data['year'] = data.index.year
+    
+    # 절대 주차 계산
+    data['week'] = get_weeknum_google_style(data.index)
     data['weekday'] = data.index.weekday
     
-    # groupby 최적화
-    last_day = data.groupby(['year', 'week'])['weekday'].idxmax()
+    # groupby 최적화 (절대 주차 사용하므로 year 그룹핑 불필요)
+    last_day = data.groupby(['week'])['weekday'].idxmax()
     return data.loc[last_day]
+
 
 # ============================================
 # 최적화 3: RSI 계산 함수
@@ -332,46 +334,42 @@ def calculate_rsi_rolling(data, period=14):
     """
     RSI(상대강도지수)를 주어진 기간 기준으로 계산
     기본: 14일
-    """      
-    data = data.copy()
-    delta = data['Close'].diff()
-    gain = delta.where(delta > 0, 0.0)
-    loss = -delta.where(delta < 0, 0.0)
-    
-    # rolling 대신 ewm 사용 (더 빠름)
-    avg_gain = gain.rolling(window=period, min_periods=period).mean()
-    avg_loss = loss.rolling(window=period, min_periods=period).mean()
-    
-    # 0으로 나누기 방지
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    rsi = 100 - (100 / (1 + rs))
-    
-    data['RSI'] = rsi.round(2)
-    return data
+    """    
 
-    # """
-    # RSI(상대강도지수)를 주어진 기간 기준으로 계산
-    # 기본: 14일
-    # """    
     # data = data.copy()
-    # data['delta'] = data['Close'].diff()
-    # data['gain'] = data['delta'].where(data['delta'] > 0, 0.0)
-    # data['loss'] = -data['delta'].where(data['delta'] < 0, 0.0)
-    # data['avg_gain'] = data['gain'].rolling(window=period).mean()
-    # data['avg_loss'] = data['loss'].rolling(window=period).mean()
-    # data['RS'] = (data['avg_gain'] / data['avg_loss']).round(3)
-    # data['RSI'] = ((data['RS'] / (1 + data['RS'])) * 100).round(2)
+    # delta = data['Close'].diff()
+    # gain = delta.where(delta > 0, 0.0)
+    # loss = -delta.where(delta < 0, 0.0)
     
+    # # rolling 대신 ewm 사용 (더 빠름)
+    # avg_gain = gain.rolling(window=period, min_periods=period).mean()
+    # avg_loss = loss.rolling(window=period, min_periods=period).mean()
+    
+    # # 0으로 나누기 방지
+    # rs = avg_gain / avg_loss.replace(0, np.nan)
+    # rsi = 100 - (100 / (1 + rs))
+    
+    # data['RSI'] = rsi.round(2)
+
+    # #print("-----------data : \n", data)
     # return data
+
+    data = data.copy()
+    data['delta'] = data['Close'].diff()
+    data['gain'] = data['delta'].where(data['delta'] > 0, 0.0)
+    data['loss'] = -data['delta'].where(data['delta'] < 0, 0.0)
+    data['avg_gain'] = data['gain'].rolling(window=period).mean()
+    data['avg_loss'] = data['loss'].rolling(window=period).mean()
+    data['RS'] = (data['avg_gain'] / data['avg_loss']).round(3)
+    data['RSI'] = ((data['RS'] / (1 + data['RS'])) * 100).round(2)
+    
+    return data
 
 # ============================================
 # 최적화 4: 모드 판별 함수 (벡터화)
 # ============================================
 def assign_mode_v2(rsi_series):
-    """
-    최적화된 모드 판별 - 기존 함수 교체용
-    벡터화로 약 20배 빠름
-    """
+ 
     mode = pd.Series('방어', index=range(len(rsi_series)))
     
     # 배열로 변환하여 빠른 접근
@@ -479,7 +477,9 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     result_rows = []
 
     start_dt, end_dt = pd.to_datetime(start_date), pd.to_datetime(end_date)
-    qqq_start = start_dt - pd.Timedelta(weeks=20) # RSI 계산을 위한 20주치 데이터 필요
+
+    yf_end_dt = (end_dt + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    qqq_start = start_dt - pd.Timedelta(weeks=25) # RSI 계산을 위한 25주치 데이터 필요
 
     # 거래일 캘린더
     nyse = mcal.get_calendar("NYSE")
@@ -489,42 +489,69 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     ).index.normalize()
     
     # QQQ 데이터 로드
-    qqq = fdr.DataReader("QQQ", qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
-    qqq.index = pd.to_datetime(qqq.index)
-    qqq['Close'] = qqq['Close'].round(2)                                    
-    if end_dt not in qqq.index: # 종료일자가 데이터에 없으면 추가
-        qqq.loc[end_dt] = None
+    ###qqq = fdr.DataReader("QQQ", qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
+
+    # RSI 계산을 위한 QQQ 데이터 로드 (yfinance 사용)
+    qqq = yf.download("QQQ", start=qqq_start.strftime("%Y-%m-%d"), end=yf_end_dt, auto_adjust=False, back_adjust=False, progress=False)
+
+    ###print(qqq.head())
+
+    ###print("**********************************************\n")
+
+    # MultiIndex 대응 (yfinance 최신 버전 이슈 방지)
+    if isinstance(qqq.columns, pd.MultiIndex):
+        qqq.columns = qqq.columns.get_level_values(0)
+
+    qqq.index = pd.to_datetime(qqq.index).tz_localize(None) # 시간대 정보 제거
+    qqq['Close'] = qqq['Close'].round(2)
+    #qqq = yf.Ticker("QQQ").history(start=qqq_start.strftime("%Y-%m-%d"), end=end_dt.strftime("%Y-%m-%d"))
+    ##qqq.index = pd.to_datetime(qqq.index)
+    if end_dt not in qqq.index: 
+        # 종료일자가 데이터에 없으면 빈 행 생성 (추후 로직 유지용)
+        qqq.loc[end_dt] = np.nan
+
 
     # 주간 RSI 계산 (최적화)
     weekly = get_last_trading_day_each_week(qqq)
+    ##print("---------- weekly : \n", weekly)    
     weekly_rsi = calculate_rsi_rolling(weekly).dropna(subset=["RSI"])
 
-    ###print("---------- weekly_rsi : \n", weekly_rsi)
+    ##print("---------- weekly_rsi : \n", weekly_rsi)
 
     weekly_rsi["모드"] = assign_mode_v2(weekly_rsi["RSI"])
-    weekly_rsi["year"] = weekly_rsi.index.year
-    weekly_rsi["week"] = weekly_rsi.index.map(get_weeknum_google_style)
-    mode_by_year_week = weekly_rsi.set_index(["year", "week"])[["모드", "RSI"]]
+    weekly_rsi["week"] = get_weeknum_google_style(weekly_rsi.index)
+    mode_by_year_week = weekly_rsi.set_index("week")[["모드", "RSI"]]
 
     # 타겟 티커 데이터 로드
-    ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
-    ticker_data.index = pd.to_datetime(ticker_data.index)
-    ticker_data['Close'] = ticker_data['Close'].round(2)
-    
-    ##print(qqq.tail())
-    ##print("**********************************************\n")
+    ##ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
+
+    # 타겟 티커 데이터 로드 (yfinance 사용) ---
+    ticker_data = yf.download(target_ticker, start=qqq_start.strftime("%Y-%m-%d"), end=yf_end_dt, auto_adjust=False, back_adjust=False,progress=False)
+
     ##print(ticker_data.tail())
+
+    ##print("**********************************************\n")
+
+    # MultiIndex 대응
+    if isinstance(ticker_data.columns, pd.MultiIndex):
+        ticker_data.columns = ticker_data.columns.get_level_values(0)
+
+    ##ticker_data.index = pd.to_datetime(ticker_data.index)
+    ticker_data.index = pd.to_datetime(ticker_data.index).tz_localize(None)    
+    ticker_data['Close'] = ticker_data['Close'].round(2)
+
+    ###print(ticker_data.tail())
 
     for day in market_days:
         if not (start_dt <= day <= end_dt):
             continue
 
-        year, week = day.year, get_weeknum_google_style(day)
-        if (year, week) not in mode_by_year_week.index:
+        week = get_weeknum_google_style(day)
+        if week not in mode_by_year_week.index:
             continue
 
         # 해당 날짜의 연도 및 주차 정보로 모드(RSI 기반) 조회
-        mode_info = mode_by_year_week.loc[(year, week)]
+        mode_info = mode_by_year_week.loc[week]
         if isinstance(mode_info, pd.DataFrame):
             mode_info = mode_info.iloc[0]
 
@@ -607,18 +634,23 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
             hold_range = market_days[(market_days >= day)][:holding_days]
             future_prices = ticker_data.loc[ticker_data.index.isin(hold_range)]
 
-            ##print("----sell_target_price : ", sell_target_price)
-            ##print("----future_prices : \n", future_prices)
-
+            ###print("----sell_target_price : ", sell_target_price)
+            ###print("----future_prices : \n", future_prices)
             match = future_prices[future_prices["Close"] >= sell_target_price]
 
             if not match.empty:
                 actual_sell_date = match.index[0].date()
-                actual_sell_price = round(match.iloc[0]["Close"], 2)
+                val = match.iloc[0]["Close"]
+                if isinstance(val, pd.Series):
+                    val = val.iloc[0]
+                actual_sell_price = round(float(val), 2)
             elif moc_sell_date and pd.Timestamp(moc_sell_date) in ticker_data.index:
                 # 조건 달성 실패 시 MOC 매도
                 actual_sell_date = moc_sell_date
-                actual_sell_price = round(ticker_data.loc[pd.Timestamp(moc_sell_date)]["Close"], 2)
+                val = ticker_data.loc[pd.Timestamp(moc_sell_date)]["Close"]
+                if isinstance(val, pd.Series):
+                    val = val.iloc[0]
+                actual_sell_price = round(float(val), 2)
 
             # if actual_sell_date:
             #     if actual_sell_date == moc_sell_date:
@@ -725,6 +757,12 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
             tgt_price_val = float(tgt_price.iloc[0]) if len(tgt_price) > 0 and pd.notna(tgt_price.iloc[0]) else None
         else:
             tgt_price_val = float(tgt_price) if pd.notna(tgt_price) else None
+
+        if isinstance(buy_price, pd.Series):
+            buy_price = float(buy_price.iloc[0]) if not buy_price.empty else None
+
+        if isinstance(sell_price, pd.Series):
+            sell_price = float(sell_price.iloc[0]) if not sell_price.empty else None
 
         qty = int(buy_plan // tgt_price_val) if tgt_price_val and tgt_price_val > 0 else None
 
@@ -1267,5 +1305,4 @@ if st.button("▶ 전략 실행"):
                             .style
                             .apply(highlight_order, axis=1).format({"주문가": "{:,.2f}"})
                         ) 
-        st.dataframe(styled_df_orders, use_container_width=True)
-        
+        st.dataframe(styled_df_orders, use_container_width=True)        
