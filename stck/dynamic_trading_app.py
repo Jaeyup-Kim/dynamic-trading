@@ -238,6 +238,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     # QQQ 종가 취득
     qqq = fdr.DataReader("QQQ", qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
     qqq.index = pd.to_datetime(qqq.index)
+    qqq['Close'] = qqq['Close'].round(2)
     if end_dt not in qqq.index:
         qqq.loc[end_dt] = None
 
@@ -250,7 +251,8 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
 
     ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
     ticker_data.index = pd.to_datetime(ticker_data.index)
-
+    ticker_data['Close'] = ticker_data['Close'].round(2)
+    
     # --- 매매 전략 수행 ---
     for day in market_days:
         if not (start_dt <= day <= end_dt):

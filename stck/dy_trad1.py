@@ -14,7 +14,6 @@ import os
 
 # -----------------------------------------------
 # 공격형2 포함 : https://dynamic-trading-choice.streamlit.app/
-# yfinance 를 이용해서 종가 취득
 # -----------------------------------------------
 
 # --- 고유 식별자 설정 ---
@@ -369,7 +368,9 @@ def calculate_rsi_rolling(data, period=14):
 # 최적화 4: 모드 판별 함수 (벡터화)
 # ============================================
 def assign_mode_v2(rsi_series):
- 
+    """
+    최적화된 모드 판별 - 기존 함수 교체용
+    """
     mode = pd.Series('방어', index=range(len(rsi_series)))
     
     # 배열로 변환하여 빠른 접근
@@ -489,30 +490,24 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     ).index.normalize()
     
     # QQQ 데이터 로드
-    ###qqq = fdr.DataReader("QQQ", qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
+    ##qqq = fdr.DataReader("QQQ", qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
 
     # RSI 계산을 위한 QQQ 데이터 로드 (yfinance 사용)
-    qqq = yf.download("QQQ", start=qqq_start.strftime("%Y-%m-%d"), end=yf_end_dt, auto_adjust=False, back_adjust=False, progress=False)
-
-    print(qqq.head())
-
-    print("**********************************************\n")
+    qqq = yf.download("QQQ", start=qqq_start.strftime("%Y-%m-%d"), end=end_dt, auto_adjust=False, back_adjust=False, progress=False)
 
     # MultiIndex 대응 (yfinance 최신 버전 이슈 방지)
     if isinstance(qqq.columns, pd.MultiIndex):
         qqq.columns = qqq.columns.get_level_values(0)
 
-    qqq.index = pd.to_datetime(qqq.index).tz_localize(None) # 시간대 정보 제거
-    #qqq = yf.Ticker("QQQ").history(start=qqq_start.strftime("%Y-%m-%d"), end=end_dt.strftime("%Y-%m-%d"))
-    ##qqq.index = pd.to_datetime(qqq.index)
-    if end_dt not in qqq.index: 
-        # 종료일자가 데이터에 없으면 빈 행 생성 (추후 로직 유지용)
-        qqq.loc[end_dt] = np.nan
+    qqq.index = pd.to_datetime(qqq.index)
+    qqq['Close'] = qqq['Close'].round(2)
 
+    if end_dt not in qqq.index: # 종료일자가 데이터에 없으면 추가
+        qqq.loc[end_dt] = None
 
     # 주간 RSI 계산 (최적화)
     weekly = get_last_trading_day_each_week(qqq)
-    ##print("---------- weekly : \n", weekly)    
+    ###print("---------- weekly : \n", weekly)    
     weekly_rsi = calculate_rsi_rolling(weekly).dropna(subset=["RSI"])
 
     ##print("---------- weekly_rsi : \n", weekly_rsi)
@@ -522,21 +517,16 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     mode_by_year_week = weekly_rsi.set_index("week")[["모드", "RSI"]]
 
     # 타겟 티커 데이터 로드
-    ##ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
-
+    ###ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
     # 타겟 티커 데이터 로드 (yfinance 사용) ---
-    ticker_data = yf.download(target_ticker, start=qqq_start.strftime("%Y-%m-%d"), end=yf_end_dt, auto_adjust=False, back_adjust=False,progress=False)
-
-    print(ticker_data.head())
-
-    ##print("**********************************************\n")
-
+    ticker_data = yf.download(target_ticker, start=qqq_start.strftime("%Y-%m-%d"), end=end_dt, auto_adjust=False, back_adjust=False,progress=False)    
+    
     # MultiIndex 대응
     if isinstance(ticker_data.columns, pd.MultiIndex):
-        ticker_data.columns = ticker_data.columns.get_level_values(0)
+        ticker_data.columns = ticker_data.columns.get_level_values(0)    
 
-    ##ticker_data.index = pd.to_datetime(ticker_data.index)
-    ticker_data.index = pd.to_datetime(ticker_data.index).tz_localize(None)    
+    ticker_data.index = pd.to_datetime(ticker_data.index)
+    ticker_data['Close'] = ticker_data['Close'].round(2)
 
     for day in market_days:
         if not (start_dt <= day <= end_dt):

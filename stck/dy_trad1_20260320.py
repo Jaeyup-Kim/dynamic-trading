@@ -490,6 +490,8 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     # QQQ 데이터 로드
     qqq = fdr.DataReader("QQQ", qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
     qqq.index = pd.to_datetime(qqq.index)
+    qqq['Close'] = qqq['Close'].round(2)
+
     if end_dt not in qqq.index: # 종료일자가 데이터에 없으면 추가
         qqq.loc[end_dt] = None
 
@@ -498,7 +500,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     ###print("---------- weekly : \n", weekly)    
     weekly_rsi = calculate_rsi_rolling(weekly).dropna(subset=["RSI"])
 
-    ###print("---------- weekly_rsi : \n", weekly_rsi)
+    print("---------- weekly_rsi : \n", weekly_rsi)
 
     weekly_rsi["모드"] = assign_mode_v2(weekly_rsi["RSI"])
     weekly_rsi["week"] = get_weeknum_google_style(weekly_rsi.index)
@@ -507,7 +509,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     # 타겟 티커 데이터 로드
     ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
     ticker_data.index = pd.to_datetime(ticker_data.index)
-
+    ticker_data['Close'] = ticker_data['Close'].round(2)
 
     for day in market_days:
         if not (start_dt <= day <= end_dt):
