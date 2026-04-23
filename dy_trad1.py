@@ -1043,7 +1043,7 @@ col1, col2 = st.columns(2)
 
 with col1:
     # 📝 티커 선택
-    tickers = ('SOXL', 'KORU', 'TQQQ', 'BITU','TNA','UDOW','WEBL')
+    tickers = ('SOXL', 'KORU', 'TQQQ', 'BITU','TNA','UDOW','TECL')
     current_ticker_index = tickers.index(params["target_ticker"]) if params["target_ticker"] in tickers else 0
     target_ticker = st.selectbox('티커 *', tickers, index=current_ticker_index)
     
