@@ -1022,6 +1022,18 @@ styles = {
         "atck_div_cnt": 8,
         "prft_cmpnd_int_rt": 0.72,  # 이익복리율
         "loss_cmpnd_int_rt": 0.213, # 손실복리율
+    },
+    "초공격": {
+        "dfns_hold_days": 35,
+        "dfns_buy_threshold": 3.5,
+        "dfns_sell_threshold": 1.8,
+        "dfns_div_cnt": 7,
+        "atck_hold_days": 7,
+        "atck_buy_threshold": 7.5,
+        "atck_sell_threshold": 5.6,
+        "atck_div_cnt": 5,
+        "prft_cmpnd_int_rt": 0.95,  # 이익복리율
+        "loss_cmpnd_int_rt": 0.2, # 손실복리율
     }
 }
 # ---------------------------------------
