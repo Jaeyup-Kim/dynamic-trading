@@ -1029,7 +1029,7 @@ styles = {
         "dfns_sell_threshold": 1.8,
         "dfns_div_cnt": 7,
         "atck_hold_days": 7,
-        "atck_buy_threshold": 7.5,
+        "atck_buy_threshold": 9.5,
         "atck_sell_threshold": 5.6,
         "atck_div_cnt": 5,
         "prft_cmpnd_int_rt": 0.95,  # 이익복리율
