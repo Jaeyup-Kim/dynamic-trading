@@ -13,7 +13,7 @@ import time
 import os
 
 # -----------------------------------------------
-# 공격형2 포함 : https://dynamic-trading-choice.streamlit.app/
+# 공격형2, 초공격 포함 : https://dynamic-trading-choice.streamlit.app/
 # -----------------------------------------------
 
 # --- 고유 식별자 설정 ---
@@ -469,7 +469,7 @@ def calc_balance(row, prev_balance, sell_list):
 # 최적화 5: 메인 전략 함수 (핵심 최적화)
 # ============================================
 @st.cache_data(ttl=1800, show_spinner=False)  # 30분 캐시
-def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, day_cnt, 
+def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, day_cnt, style_option, 
                                 dfns_hold_days, dfns_buy_threshold, dfns_sell_threshold, dfns_div_cnt, 
                                 atck_hold_days, atck_buy_threshold, atck_sell_threshold, atck_div_cnt, 
                                 prft_cmpnd_int_rt, loss_cmpnd_int_rt):
@@ -528,6 +528,8 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     ticker_data.index = pd.to_datetime(ticker_data.index)
     ticker_data['Close'] = ticker_data['Close'].round(2)
 
+    any_buy_happened = False
+
     for day in market_days:
         if not (start_dt <= day <= end_dt):
             continue
@@ -576,12 +578,24 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         if mode == "방어":
             # 모드에 따라 목표가 및 보유일 설정
             div_cnt = dfns_div_cnt
-            target_price = round(prev_close * (1 + dfns_buy_threshold), 2)
+
+            # 첫 번째 분할 매수가 체결될 때까지 초공격2인 경우 threshold 15% 유지
+            current_atck_buy_threshold = dfns_div_cnt
+            if style_option in ["초공격2"] and not any_buy_happened:
+                current_atck_buy_threshold = 0.15
+
+            target_price = round(prev_close * (1 + current_atck_buy_threshold), 2)
             sell_target_price = round((actual_close or target_price) * (1 + dfns_sell_threshold), 2)
             holding_days = dfns_hold_days
         else:
             div_cnt = atck_div_cnt
-            target_price = round(prev_close * (1 + atck_buy_threshold), 2)
+
+            # 첫 번째 분할 매수가 체결될 때까지 초공격2인 경우 threshold 15% 유지
+            current_atck_buy_threshold = atck_buy_threshold
+            if style_option in ["초공격2"] and not any_buy_happened:
+                current_atck_buy_threshold = 0.15
+
+            target_price = round(prev_close * (1 + current_atck_buy_threshold), 2)
             sell_target_price = round((actual_close or target_price) * (1 + atck_sell_threshold), 2)
             holding_days = atck_hold_days
 
@@ -615,6 +629,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         # 실제 체결 가능한 경우 (매수 목표가 ≥ 종가)
         if actual_close and target_price >= actual_close and target_qty > 0:
             buy_qty = target_qty
+            any_buy_happened = True
             buy_amt = round(buy_qty * actual_close, 2)
             # 보유 기간 내 종가가 매도 목표가를 넘긴 경우 매도 성사
             hold_range = market_days[(market_days >= day)][:holding_days]
@@ -1008,6 +1023,7 @@ styles = {
         "atck_buy_threshold": 5.0,
         "atck_sell_threshold": 2.5,
         "atck_div_cnt": 7,
+        "fst_atck_buy_threshold": 0, # 첫매수조건이율 추가
         "prft_cmpnd_int_rt": 0.8,   # 이익복리율
         "loss_cmpnd_int_rt": 0.3,   # 손실복리율
     },
@@ -1020,6 +1036,20 @@ styles = {
         "atck_buy_threshold": 3.6,
         "atck_sell_threshold": 5.6,
         "atck_div_cnt": 8,
+        "fst_atck_buy_threshold": 0, # 첫매수조건이율 추가
+        "prft_cmpnd_int_rt": 0.72,  # 이익복리율
+        "loss_cmpnd_int_rt": 0.213, # 손실복리율
+    },
+    "초공격2": {
+        "dfns_hold_days": 35,
+        "dfns_buy_threshold": 3.5,
+        "dfns_sell_threshold": 1.8,
+        "dfns_div_cnt": 7,
+        "atck_hold_days": 8,
+        "atck_buy_threshold": 3.6,        
+        "atck_sell_threshold": 5.6,
+        "atck_div_cnt": 8,
+        "fst_atck_buy_threshold": 15, # 첫매수조건이율
         "prft_cmpnd_int_rt": 0.72,  # 이익복리율
         "loss_cmpnd_int_rt": 0.213, # 손실복리율
     }
@@ -1043,7 +1073,7 @@ col1, col2 = st.columns(2)
 
 with col1:
     # 📝 티커 선택
-    tickers = ('SOXL', 'KORU', 'TQQQ', 'BITU')
+    tickers = ('SOXL', 'KORU', 'TQQQ', 'BITU','TNA','UDOW','TECL')
     current_ticker_index = tickers.index(params["target_ticker"]) if params["target_ticker"] in tickers else 0
     target_ticker = st.selectbox('티커 *', tickers, index=current_ticker_index)
     
@@ -1096,6 +1126,10 @@ st.markdown(f"**분할수:** {dfns_div_cnt}회")
 col5, col6 = st.columns(2)
 with col5:
     st.markdown(f"**매수조건이율:** {selected_style['dfns_buy_threshold']}%")
+    # 초공격2 스타일일 경우 첫매수조건이율 표시
+    if style_option in ["초공격2"]:
+        # fst_atck_buy_threshold는 이미 % 단위로 저장되어 있으므로 그대로 사용
+        st.markdown(f"**첫매수조건이율:** {selected_style['fst_atck_buy_threshold']}%")    
 
 with col6:
     st.markdown(f"**매도조건이율:** {selected_style['dfns_sell_threshold']}%")
@@ -1116,6 +1150,10 @@ st.markdown(f"**분할수:** {atck_div_cnt}회")
 col7, col8 = st.columns(2)
 with col7:
     st.markdown(f"**매수조건이율:** {selected_style['atck_buy_threshold']}%")
+    # 초공격2 스타일일 경우 첫매수조건이율 표시
+    if style_option in ["초공격2"]:
+        # fst_atck_buy_threshold는 이미 % 단위로 저장되어 있으므로 그대로 사용
+        st.markdown(f"**첫매수조건이율:** {selected_style['fst_atck_buy_threshold']}%")
 
 with col8:
     st.markdown(f"**매도조건이율:** {selected_style['atck_sell_threshold']}%")
@@ -1144,7 +1182,7 @@ if st.button("▶ 전략 실행"):
 
     # 캐싱된 함수 호출 시 모든 인자 전달
     df_result = get_mode_and_target_prices(
-        start_date, end_date, target_ticker, first_amt, 0, 
+        start_date, end_date, target_ticker, first_amt, 0, style_option,
         dfns_hold_days, dfns_buy_threshold, dfns_sell_threshold, dfns_div_cnt, 
         atck_hold_days, atck_buy_threshold, atck_sell_threshold, atck_div_cnt, 
         prft_cmpnd_int_rt, loss_cmpnd_int_rt
@@ -1289,5 +1327,3 @@ if st.button("▶ 전략 실행"):
                             .apply(highlight_order, axis=1).format({"주문가": "{:,.2f}"})
                         ) 
         st.dataframe(styled_df_orders, use_container_width=True)
-
-        
