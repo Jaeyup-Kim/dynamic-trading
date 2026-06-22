@@ -578,15 +578,21 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
         if mode == "방어":
             # 모드에 따라 목표가 및 보유일 설정
             div_cnt = dfns_div_cnt
-            target_price = round(prev_close * (1 + dfns_buy_threshold), 2)
+
+            # 첫 번째 분할 매수가 체결될 때까지 초공격2인 경우 threshold 15% 유지
+            current_atck_buy_threshold = dfns_div_cnt
+            if style_option in ["초공격2"] and not any_buy_happened:
+                current_atck_buy_threshold = 0.15
+
+            target_price = round(prev_close * (1 + current_atck_buy_threshold), 2)
             sell_target_price = round((actual_close or target_price) * (1 + dfns_sell_threshold), 2)
             holding_days = dfns_hold_days
         else:
             div_cnt = atck_div_cnt
 
-            # 첫 번째 분할 매수가 체결될 때까지 초공격1 또는 초공격2인 경우 threshold 15% 유지
+            # 첫 번째 분할 매수가 체결될 때까지 초공격2인 경우 threshold 15% 유지
             current_atck_buy_threshold = atck_buy_threshold
-            if style_option in ["초공격1", "초공격2"] and not any_buy_happened:
+            if style_option in ["초공격2"] and not any_buy_happened:
                 current_atck_buy_threshold = 0.15
 
             target_price = round(prev_close * (1 + current_atck_buy_threshold), 2)
@@ -1034,25 +1040,12 @@ styles = {
         "prft_cmpnd_int_rt": 0.72,  # 이익복리율
         "loss_cmpnd_int_rt": 0.213, # 손실복리율
     },
-    "초공격1": {
-        "dfns_hold_days": 35,
-        "dfns_buy_threshold": 3.5,
-        "dfns_sell_threshold": 1.8,
-        "dfns_div_cnt": 7,
-        "atck_hold_days": 7,
-        "atck_buy_threshold": 9.5,
-        "atck_sell_threshold": 5.6,
-        "atck_div_cnt": 5,
-        "fst_atck_buy_threshold": 15, # 첫매수조건이율 추가 (초공격1도 15% 적용)
-        "prft_cmpnd_int_rt": 0.95,  # 이익복리율
-        "loss_cmpnd_int_rt": 0.2, # 손실복리율
-    },
     "초공격2": {
         "dfns_hold_days": 35,
         "dfns_buy_threshold": 3.5,
         "dfns_sell_threshold": 1.8,
         "dfns_div_cnt": 7,
-        "atck_hold_days": 10,
+        "atck_hold_days": 8,
         "atck_buy_threshold": 3.6,        
         "atck_sell_threshold": 5.6,
         "atck_div_cnt": 8,
@@ -1133,6 +1126,10 @@ st.markdown(f"**분할수:** {dfns_div_cnt}회")
 col5, col6 = st.columns(2)
 with col5:
     st.markdown(f"**매수조건이율:** {selected_style['dfns_buy_threshold']}%")
+    # 초공격2 스타일일 경우 첫매수조건이율 표시
+    if style_option in ["초공격2"]:
+        # fst_atck_buy_threshold는 이미 % 단위로 저장되어 있으므로 그대로 사용
+        st.markdown(f"**첫매수조건이율:** {selected_style['fst_atck_buy_threshold']}%")    
 
 with col6:
     st.markdown(f"**매도조건이율:** {selected_style['dfns_sell_threshold']}%")
@@ -1153,8 +1150,8 @@ st.markdown(f"**분할수:** {atck_div_cnt}회")
 col7, col8 = st.columns(2)
 with col7:
     st.markdown(f"**매수조건이율:** {selected_style['atck_buy_threshold']}%")
-    # 초공격1 또는 초공격2 스타일일 경우 첫매수조건이율 표시
-    if style_option in ["초공격1", "초공격2"]:
+    # 초공격2 스타일일 경우 첫매수조건이율 표시
+    if style_option in ["초공격2"]:
         # fst_atck_buy_threshold는 이미 % 단위로 저장되어 있으므로 그대로 사용
         st.markdown(f"**첫매수조건이율:** {selected_style['fst_atck_buy_threshold']}%")
 
@@ -1330,3 +1327,4 @@ if st.button("▶ 전략 실행"):
                             .apply(highlight_order, axis=1).format({"주문가": "{:,.2f}"})
                         ) 
         st.dataframe(styled_df_orders, use_container_width=True)
+        
