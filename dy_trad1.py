@@ -580,7 +580,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
             div_cnt = dfns_div_cnt
 
             # 첫 번째 분할 매수가 체결될 때까지 초공격2인 경우 threshold 15% 유지
-            current_atck_buy_threshold = dfns_div_cnt
+            current_atck_buy_threshold = dfns_buy_threshold
             if style_option in ["초공격2"] and not any_buy_happened:
                 current_atck_buy_threshold = 0.15
 
