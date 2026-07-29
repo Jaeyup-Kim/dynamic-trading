@@ -468,7 +468,7 @@ def calc_balance(row, prev_balance, sell_list):
 # ============================================
 # 최적화 5: 메인 전략 함수 (핵심 최적화)
 # ============================================
-###@st.cache_data(ttl=1800, show_spinner=False)  # 30분 캐시
+@st.cache_data(ttl=600, show_spinner=False)  # 10분 캐시
 def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, day_cnt, style_option, 
                                 dfns_hold_days, dfns_buy_threshold, dfns_sell_threshold, dfns_div_cnt, 
                                 atck_hold_days, atck_buy_threshold, atck_sell_threshold, atck_div_cnt, 
