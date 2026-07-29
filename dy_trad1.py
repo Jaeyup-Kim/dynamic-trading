@@ -493,7 +493,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     ##qqq = fdr.DataReader("QQQ", qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
 
     # RSI 계산을 위한 QQQ 데이터 로드 (yfinance 사용)
-    qqq = yf.download("QQQ", start=qqq_start.strftime("%Y-%m-%d"), end=end_dt, auto_adjust=False, back_adjust=False, progress=False)
+    qqq = yf.download("QQQ", start=qqq_start.strftime("%Y-%m-%d"), end=end_dt, auto_adjust=False, repair=True, back_adjust=False, progress=False)
 
     # MultiIndex 대응 (yfinance 최신 버전 이슈 방지)
     if isinstance(qqq.columns, pd.MultiIndex):
@@ -519,7 +519,7 @@ def get_mode_and_target_prices(start_date, end_date, target_ticker, first_amt, d
     # 타겟 티커 데이터 로드
     ###ticker_data = fdr.DataReader(target_ticker, qqq_start.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"))
     # 타겟 티커 데이터 로드 (yfinance 사용) ---
-    ticker_data = yf.download(target_ticker, start=qqq_start.strftime("%Y-%m-%d"), end=end_dt, auto_adjust=False, back_adjust=False,progress=False)    
+    ticker_data = yf.download(target_ticker, start=qqq_start.strftime("%Y-%m-%d"), end=end_dt, auto_adjust=False, repair=True, back_adjust=False,progress=False)    
     
     # MultiIndex 대응
     if isinstance(ticker_data.columns, pd.MultiIndex):
